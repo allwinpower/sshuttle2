@@ -1,0 +1,21 @@
+[package]
+name = "sshuttle2"
+description = "A VPN over a plain SSH login, written in Rust and inspired by sshuttle"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sshuttle2-core.workspace = true
+anyhow.workspace = true
+bytes.workspace = true
+clap = { version = "4", features = ["derive"] }
+etherparse = "0.21"
+ipstack = "1"
+libc.workspace = true
+nix = { version = "0.31", features = ["socket", "uio"] }
+sha2.workspace = true
+shlex = "1"
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

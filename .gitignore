@@ -1,0 +1,26 @@
+# Build output. Cargo.lock is tracked: sshuttle2 is a binary.
+/target/
+/dist/
+**/*.rs.bk
+*.pdb
+
+# Local Claude Code state
+/.claude/worktrees/
+/.claude/settings.local.json
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Operating systems
+.DS_Store
+Thumbs.db
+
+# Local environment and secrets
+.env
+.env.*
+*.pem
+*.key

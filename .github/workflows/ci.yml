@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # rustup reads rust-toolchain.toml on the first cargo call; this makes
+      # the install its own step so its time does not hide inside "fmt".
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets
+      - run: cargo test --workspace
+      # End to end: the static Linux servers, a client embedding them, then
+      # real transfers through a local server and over ssh into a container.
+      - uses: mlugg/setup-zig@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+      - run: cargo xtask dist
+      - run: scripts/e2e.sh local
+      - run: scripts/e2e.sh docker
+      # Tun mode, in containers: a static client (musl) that runs on Alpine.
+      - run: |
+          rustup target add x86_64-unknown-linux-musl
+          SSHUTTLE2_SERVER_DIR=$PWD/dist/server cargo zigbuild --release -p sshuttle2 --target x86_64-unknown-linux-musl
+      - run: scripts/e2e-tun.sh
+      # nft mode, in containers. Its rules need nft_redir and nft_fib_inet;
+      # load them up front in case the kernel does not load them on demand
+      # for a request from inside a container.
+      - run: sudo modprobe -a nft_chain_nat nft_redir nft_fib_inet || true
+      - run: scripts/e2e-nft.sh
+      # No macOS runner: they cost ten times the minutes. Checking (not
+      # linking) needs no macOS SDK, so this still catches code that only
+      # compiles on Linux. macOS tests run on the developer's Mac.
+      - run: rustup target add aarch64-apple-darwin
+      - run: cargo clippy --workspace --all-targets --target aarch64-apple-darwin
+
+  ci-required:
+    # The one job everything else hangs off, and the check branch protection
+    # requires: GitHub auto-merge waits for it. A skipped job reports
+    # success, so the gate checks each result itself.
+    needs: [linux]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if anything upstream did not succeed
+        run: |
+          set -euo pipefail
+          echo "linux=${{ needs.linux.result }}"
+          [ "${{ needs.linux.result }}" = "success" ] || exit 1

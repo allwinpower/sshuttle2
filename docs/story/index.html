@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Why sshuttle2 Exists</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="A hospital Wi-Fi blocked AI, every VPN and Wikipedia on my Mac and my phone. Only SSH got through, and sshuttle was too slow. So I fixed my internet first.">
+<link rel="canonical" href="https://sshuttle2.openrepos.org/">
+<style>
+/* Layout: a plain text file in the GNU manner. One monospace column, 72 characters wide; ASCII art in <pre>. */
+:root {
+  --bg: #ffffff;
+  --fg: #000000;
+  --muted: #555555;
+  --rule: #999999;
+  --link: #0000ee;
+  --visited: #551a8b;
+  --alarm: #b00000;
+  --mono: ui-monospace, "DejaVu Sans Mono", "Liberation Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111111; --fg: #d9d9d9; --muted: #9b9b9b; --rule: #555555;
+    --link: #8ab4ff; --visited: #c9a3ff; --alarm: #ff7b7b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111111; --fg: #d9d9d9; --muted: #9b9b9b; --rule: #555555;
+  --link: #8ab4ff; --visited: #c9a3ff; --alarm: #ff7b7b;
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 400 15px/1.55 var(--mono);
+}
+a { color: var(--link); }
+a:visited { color: var(--visited); }
+a:focus-visible { outline: 2px dashed currentColor; outline-offset: 2px; }
+b, strong { font-weight: 700; }
+img { max-width: 100%; display: block; }
+
+.page {
+  max-width: 74ch;
+  margin: 0 auto;
+  padding-block: 1.5rem 3rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+p, ul, ol, dl { margin: 0 0 1em; }
+
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.manhead {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0 2ch;
+  color: var(--muted);
+}
+@media (max-width: 480px) { .manhead span:nth-child(2) { display: none; } }
+
+/* ASCII art: shrinks with the screen so 60 columns fit on a phone, and scrolls if a font runs wider. */
+.art {
+  margin: 0 0 1em;
+  font: inherit;
+  font-size: min(15px, 2.5vw);
+  line-height: 1.25;
+  overflow-x: auto;
+  white-space: pre;
+}
+.banner { font-size: min(15px, 2.35vw); font-weight: 700; line-height: 1.1; margin-top: 1em; }
+
+h2 {
+  font: 700 1em/1.4 var(--mono);
+  margin: 2.4em 0 1em;
+  width: fit-content;
+  max-width: 100%;
+}
+h2::after {
+  content: "========================================================================";
+  display: block;
+  width: 0;
+  min-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  font-weight: 400;
+}
+h3 { font: 700 1em/1.4 var(--mono); margin: 1.5em 0 0.5em; }
+
+ul { list-style: none; padding-left: 2ch; }
+ul > li { position: relative; margin-bottom: 0.35em; }
+ul > li::before { content: "*"; position: absolute; left: -2ch; }
+ul.blocked > li::before { content: "X"; color: var(--alarm); }
+ol.toc { padding-left: 4ch; }
+
+.quote { margin: 0 0 0.25em; color: var(--muted); }
+.reply { margin: 0 0 1em 2ch; }
+
+.shots {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2ch;
+  margin-bottom: 1em;
+}
+.shot { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.4em; }
+.shot img {
+  width: 100%;
+  aspect-ratio: 720 / 1380;
+  border: 1px solid var(--fg);
+  background: var(--bg);
+}
+.shot figcaption { font-size: 0.87em; overflow-wrap: anywhere; }
+.flag { color: var(--alarm); }
+@media (max-width: 620px) {
+  .shots {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 62%;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 0.5em;
+  }
+  .shot { scroll-snap-align: start; }
+}
+
+dl.features dt { font-weight: 700; }
+dl.features dt::before { content: "* "; }
+dl.features dd { margin: 0 0 0.8em 2ch; }
+
+.note { color: var(--muted); font-size: 0.87em; }
+.todo { font-weight: 700; }
+
+hr { border: 0; margin: 2.5em 0 1.2em; height: 1.55em; overflow: hidden; }
+hr::before { content: "------------------------------------------------------------------------"; display: block; white-space: nowrap; color: var(--rule); }
+
+footer p { color: var(--muted); font-size: 0.87em; }
+</style>
+</head>
+<body>
+<main class="page">
+
+<div class="manhead"><span>SSHUTTLE2(1)</span><span>User Stories</span><span>SSHUTTLE2(1)</span></div>
+
+<h1 class="sr">Why sshuttle2 exists</h1>
+<pre class="art banner" aria-hidden="true">         _           _    _    _        ___
+ ___ ___| |_   _  _ | |_ | |_ | | ___  |_  )
+(_-&lt;(_-&lt;| ' \ | || ||  _||  _|| |/ -_)  / /
+/__//__/|_||_| \_,_| \__| \__||_|\___| /___|</pre>
+
+<p><b>The hospital Wi-Fi blocked everything except SSH.</b> So before I could do my work, I had to fix my internet. This is why I wrote sshuttle2, a full Rust implementation inspired by <a href="https://github.com/sshuttle/sshuttle">sshuttle</a>.</p>
+<p class="note">Allwin, October 2026</p>
+<p>Source code: <a href="https://github.com/allwinpower/sshuttle2">github.com/allwinpower/sshuttle2</a></p>
+
+<pre class="art" role="img" aria-label="Patient wristband. Patient: my internet. Ward: patient Wi-Fi. Devices: a Mac and a phone. Allergies: AI, VPNs, Wikipedia. Tolerates: SSH, port 22.">+--------------------------------------+
+| PATIENT    my internet               |
+| WARD       patient Wi-Fi             |
+| DEVICES    a Mac and a phone         |
+| ALLERGIES  AI, VPNs, Wikipedia       |
+| TOLERATES  SSH, port 22              |
++--------------------------------------+</pre>
+
+<h3>Table of Contents</h3>
+<ol class="toc">
+  <li><a href="#admitted">Admitted</a></li>
+  <li><a href="#symptoms">Symptoms</a></li>
+  <li><a href="#examination">Examination</a></li>
+  <li><a href="#treatment">First treatment: sshuttle</a></li>
+  <li><a href="#surgery">Surgery</a></li>
+  <li><a href="#vitals">Vitals after surgery</a></li>
+  <li><a href="#discharge">Discharge notes</a></li>
+</ol>
+
+<h2 id="admitted">1. Admitted</h2>
+<p>I ended up in a hospital. The staff were kind, the bed was fine, and I still had work to do. I had my Mac and my phone with me, and the hospital has patient Wi-Fi. Great, I thought, and opened the laptop.</p>
+
+<h2 id="symptoms">2. Symptoms</h2>
+<p>The patient Wi-Fi sits behind a Fortinet firewall, and that firewall has opinions. The Mac and the phone got the same treatment. The screenshots are from the phone (Brave on Android).</p>
+<div class="shots">
+  <figure class="shot">
+    <img src="img/blocked-claude.png" width="720" height="1380" alt="Brave on Android: claude.ai fails with 'An application is stopping Brave from safely connecting to this site', Fortinet, NET::ERR_CERT_AUTHORITY_INVALID.">
+    <figcaption>Fig. 1: claude.ai <span class="flag">[BLOCKED]</span></figcaption>
+  </figure>
+  <figure class="shot">
+    <img src="img/blocked-chatgpt.png" width="720" height="1380" alt="Brave on Android: chatgpt.com fails with the same Fortinet certificate error.">
+    <figcaption>Fig. 2: chatgpt.com <span class="flag">[BLOCKED]</span></figcaption>
+  </figure>
+  <figure class="shot">
+    <img src="img/blocked-wikipedia.png" width="720" height="1380" alt="Brave on Android: en.wikipedia.org fails with the same Fortinet certificate error.">
+    <figcaption>Fig. 3: en.wikipedia.org <span class="flag">[BLOCKED]</span></figcaption>
+  </figure>
+</div>
+<p>Three sites, three identical refusals.</p>
+<p>What the firewall blocked, on both devices:</p>
+<ul class="blocked">
+  <li><b>Claude</b>, <b>ChatGPT</b> and every other AI tool I tried.</li>
+  <li><b>Every VPN</b>: WireGuard, Shadowsocks, Mullvad, and the rest.</li>
+  <li><b>Wikipedia.</b> The free encyclopedia. In a building full of people who want to look up their own diagnosis.</li>
+</ul>
+<p>The error is NET::ERR_CERT_AUTHORITY_INVALID. The firewall opens every HTTPS connection to look inside and signs the result with its own certificate. My devices have never met that certificate, so they refuse the page.</p>
+<p>Brave offers two fixes:</p>
+<p class="quote">&gt; Try uninstalling or disabling "Fortinet"</p>
+<p class="reply">Sure. I'll walk to the hospital's server room in my patient gown and ask nicely.</p>
+<p class="quote">&gt; Try connecting to another network</p>
+<p class="reply">Patients don't get to pick the network.</p>
+
+<h2 id="examination">3. Examination</h2>
+<p>I tried everything. One thing got through: <b>SSH</b>. Maybe the IT team needs it, maybe nobody thought about it. Either way, I could log in to my own server from the Mac.</p>
+<pre class="art" role="img" aria-label="Diagram: from the Mac and the phone, Fortinet blocks claude.ai, chatgpt.com, wikipedia.org and the VPNs. From the Mac, SSH on port 22 reaches my server, and from there the internet.">          Fortinet
+             |
+ [Mac]   ----X---&gt; claude.ai, chatgpt.com
+ [phone] ----X---&gt; wikipedia.org
+         ----X---&gt; WireGuard, Shadowsocks,
+                   Mullvad, ...
+
+ [Mac] == ssh :22 ==&gt; [my server] --&gt; internet</pre>
+<p>If you can SSH, you can tunnel. That is the idea behind <a href="https://github.com/sshuttle/sshuttle">sshuttle</a>: a VPN over a plain SSH login, with nothing to install on the server.</p>
+
+<h2 id="treatment">4. First treatment: sshuttle</h2>
+<p>sshuttle worked on the Mac. Everything got through. Slowly.</p>
+<ul>
+  <li>Downloads ran at <b>12.8 Mbit/s</b>. The same Wi-Fi does 91.9 Mbit/s to sites it doesn't block.</li>
+  <li>A tiny page request waited <b>1.8 seconds</b>. With a download running next to it: <b>2.3 seconds</b>.</li>
+</ul>
+<p>Every click felt like waiting for the doctor's round.</p>
+<p>The cause is not a bug. sshuttle sends every byte through one single-threaded Python process on the server. On small cloud servers that caps it at about 30-45 Mbit/s, and every packet waits its turn in the same queue. sshuttle is a great idea and has helped people for years. It just could not carry my workday.</p>
+
+<h2 id="surgery">5. Surgery</h2>
+<p>So before I could do my actual work, I had to fix my internet.</p>
+<p>I wrote sshuttle2, a full Rust implementation inspired by <a href="https://github.com/sshuttle/sshuttle">sshuttle</a>. Both ends are new code, and it keeps the good idea: you need nothing on the server except an SSH login. It runs on the Mac (and on Linux). On first run the client uploads a small server program (about 1.3 MB) through SSH and reuses it after that.</p>
+<p>What changed:</p>
+<dl class="features">
+  <dt>No Python in the data path.</dt><dd>Both ends are compiled Rust.</dd>
+  <dt>Many connections, one SSH session, separate lanes.</dt><dd>Each connection has its own flow control, so one big download doesn't block everything else.</dd>
+  <dt>Windows that size themselves.</dt><dd>Each lane grows while it limits the speed and shrinks when it only builds a queue. One download can use the link, and a page doesn't wait behind it.</dd>
+  <dt>TCP, DNS, and all UDP.</dt><dd>In tun mode video calls, QUIC and games go through the tunnel too.</dd>
+  <dt>Clean exit.</dt><dd>Firewall rules and routes are removed when it stops, even after a crash.</dd>
+</dl>
+
+<h2 id="vitals">6. Vitals after surgery</h2>
+<p>Measured on the Mac. Same Wi-Fi, same server (2 vCPU, 4 GB), same day (23 October 2026). Single samples; a repeat with medians is on the <a href="https://github.com/allwinpower/sshuttle2/blob/main/TODO.md">TODO list</a>.</p>
+<!-- Bars are drawn to scale: page wait one # = 80 ms, download one # = 4 Mbit/s, rounded. -->
+<pre class="art" role="img" aria-label="Page wait, idle: no tunnel 128 ms, sshuttle 1817 ms, sshuttle2 pf mode 131 ms, sshuttle2 tun mode 211 ms.">Page wait, idle. Shorter is better.
+(one # = 80 ms)
+
+no tunnel*     ##                       128 ms
+sshuttle       ####################### 1817 ms
+sshuttle2 pf   ##                       131 ms
+sshuttle2 tun  ###                      211 ms</pre>
+<pre class="art" role="img" aria-label="Download in Mbit/s: no tunnel 91.9, sshuttle 12.8, sshuttle2 pf mode 19.1, sshuttle2 tun mode 17.4.">Download. Longer is better.
+(one # = 4 Mbit/s)
+
+no tunnel*     #######################    91.9
+sshuttle       ###                        12.8
+sshuttle2 pf   #####                      19.1
+sshuttle2 tun  ####                       17.4</pre>
+<pre class="art" role="img" aria-label="Table. No tunnel: 91.9 Mbit/s, 128 ms idle, 65 ms busy. sshuttle: 12.8 Mbit/s, 1817 ms idle, 2281 ms busy. sshuttle2 pf mode: 19.1 Mbit/s, 131 ms idle, 338 ms busy. sshuttle2 tun mode: 17.4 Mbit/s, 211 ms idle, 223 ms busy.">+---------------+----------+-----------+------------+
+|               | download | page wait |  page wait |
+|               |   Mbit/s |  idle, ms |   busy, ms |
++---------------+----------+-----------+------------+
+| no tunnel*    |     91.9 |       128 |         65 |
+| sshuttle      |     12.8 |      1817 |       2281 |
+| sshuttle2 pf  |     19.1 |       131 |        338 |
+| sshuttle2 tun |     17.4 |       211 |        223 |
++---------------+----------+-----------+------------+</pre>
+<p class="note">* No tunnel: blocked sites stay blocked. pf mode: TCP and DNS. tun mode: TCP, UDP and DNS. Download: one 100 MB file. Page wait: time until google.com/generate_204 sends its first byte. Busy: while that download runs.</p>
+<ul>
+  <li>Pages answer about <b>14 times faster</b> than with sshuttle (1817 ms -&gt; 131 ms), and about 10 times faster while a download runs (2281 ms -&gt; 223 ms).</li>
+  <li>Downloads are about <b>1.5 times faster</b> (12.8 -&gt; 19.1 Mbit/s).</li>
+  <li>There is still a gap: the bare Wi-Fi does 91.9 Mbit/s. The patient is stable, not cured.</li>
+</ul>
+
+<h2 id="discharge">7. Discharge notes</h2>
+<p>I wrote this for myself, to get back to work. If it helps one more person stuck behind a firewall that blocks Wikipedia, it was worth it.</p>
+<p>Take it. Fork it. Bomb it with pull requests.</p>
+<pre class="art">+------------------------------------------+
+|   Vibe-code it until the doctor comes.   |
++------------------------------------------+</pre>
+<p>In a hospital, that happens every morning at rounds.</p>
+<p class="todo">TODO: get from 19 Mbit/s to 92.</p>
+<ul>
+  <li>Source code: <a href="https://github.com/allwinpower/sshuttle2">github.com/allwinpower/sshuttle2</a></li>
+  <li>Pull requests: <a href="https://github.com/allwinpower/sshuttle2/pulls">github.com/allwinpower/sshuttle2/pulls</a></li>
+  <li>Bugs and ideas: <a href="https://github.com/allwinpower/sshuttle2/issues">github.com/allwinpower/sshuttle2/issues</a></li>
+  <li>Where the idea comes from: <a href="https://github.com/sshuttle/sshuttle">github.com/sshuttle/sshuttle</a></li>
+</ul>
+
+<hr>
+<footer>
+<p>sshuttle2 is free software; you can redistribute it and/or modify it under the terms of the GNU Lesser General Public License as published by the Free Software Foundation; either version 2.1 of the License, or (at your option) any later version.</p>
+<p>It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.</p>
+<p>sshuttle2 is inspired by <a href="https://github.com/sshuttle/sshuttle">sshuttle</a>; its firewall logic is ported from there. Thanks to the sshuttle authors.</p>
+<div class="manhead"><span>sshuttle2</span><span>October 2026</span><span>SSHUTTLE2(1)</span></div>
+</footer>
+
+</main>
+</body>
+</html>

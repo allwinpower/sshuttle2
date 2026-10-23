@@ -1,0 +1,16 @@
+[package]
+name = "sshuttle2-server"
+description = "Server half of sshuttle2; uploaded and started over SSH by the client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sshuttle2-core.workspace = true
+anyhow.workspace = true
+bytes.workspace = true
+libc.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

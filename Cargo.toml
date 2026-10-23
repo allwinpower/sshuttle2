@@ -1,0 +1,38 @@
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/server", "crates/client", "xtask"]
+default-members = ["crates/core", "crates/server", "crates/client"]
+# Vendored dependencies are patched in below, not workspace members: they keep
+# their upstream lints and formatting.
+exclude = ["third_party"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "LGPL-2.1-or-later"
+repository = "https://github.com/allwinpower/sshuttle2"
+
+[workspace.dependencies]
+sshuttle2-core = { path = "crates/core" }
+anyhow = "1"
+bytes = "1"
+libc = "0.2"
+tokio = { version = "1.47", features = ["rt", "rt-multi-thread", "net", "io-util", "time", "sync", "macros", "process", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
+sha2 = "0.10"
+
+# ipstack with a fix for half-closed connections; see third_party/ipstack/PATCHES.md.
+[patch.crates-io]
+ipstack = { path = "third_party/ipstack" }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
+
+# The server is uploaded over the user's SSH link on first use: keep it small.
+[profile.release-server]
+inherits = "release"
+opt-level = 3
+panic = "abort"
