@@ -63,7 +63,7 @@ create)
   for spec in $roles; do
     IFS=: read -r role region cpu mem <<<"$spec"
     zone=$("$ln" zone "$region")
-    found=$("$ln" package "$region" "$zone" "$cpu" "$mem" "${TRAFFIC_GB:-1000}")
+    found=$("$ln" package "$region" "$zone" "$cpu" "$mem")
     read -r pkg traffic <<<"$found"
     image=$("$ln" image "$region" "${IMAGE:-Ubuntu 24.04}")
     created=$(VM_PASSWORD=$(cat "$state/password") "$ln" create "$prefix-$role" "$region" "$zone" "$pkg" "$image")

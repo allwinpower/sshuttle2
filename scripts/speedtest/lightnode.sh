@@ -3,10 +3,10 @@
 #
 #   lightnode.sh list [REGION...]          regions; packages and images of each REGION
 #   lightnode.sh zone REGION               the region's first zone
-#   lightnode.sh package REGION ZONE CPU GB TRAFFIC
-#                                          "CODE TRAFFIC" of the package with that size
-#                                          and TRAFFIC GB of traffic a month (the 1000 GB
-#                                          packages have no bandwidth cap)
+#   lightnode.sh package REGION ZONE CPU GB
+#                                          "CODE TRAFFIC" of the package with that size,
+#                                          billed by traffic (no bandwidth cap), with the
+#                                          least traffic a month and the smallest data disk
 #   lightnode.sh image REGION REGEX        UUID of the first system image matching REGEX
 #   lightnode.sh create NAME REGION ZONE PACKAGE IMAGE
 #                                          "TASK UUID"; root password from VM_PASSWORD
@@ -126,16 +126,18 @@ zone)
   echo "$z"
   ;;
 package)
-  # Numbers may come as strings, and memory in MB. The traffic is freeFlow,
-  # or "-t1000-" in the package code.
+  # Packages billed by bandwidth (PayByBandwidth, "-b5-") are capped at a few
+  # Mbit/s; those billed by traffic ("-t1000-") are not. Numbers may come as
+  # strings, and memory in MB.
   out=$(call GET "/package/list?regionCode=$1&zoneCode=$2")
-  p=$(jq -r --argjson c "$3" --argjson m "$4" --argjson t "$5" '
+  p=$(jq -r --argjson c "$3" --argjson m "$4" '
     def num: if type == "string" then (tonumber? // null) else . end;
     [.packages[] | select((.cpu | num) == $c and ((.memory | num) == $m or (.memory | num) == $m * 1024))
-      | select((.freeFlow | num) == $t or ((.packageCode // "") | test("-t\($t)-")))]
-    | .[0] // empty | "\(.packageCode) \($t)"' <<<"$out")
+      | select(.publicIpChargeMode == "PayByTraffic" and (.freeFlow | num) != null)]
+    | sort_by((.freeFlow | num), ((.dataDiskSize | num) // 0)) | .[0] // empty
+    | "\(.packageCode) \(.freeFlow)"' <<<"$out")
   if [ -z "$p" ]; then
-    echo "lightnode: no $3 vCPU / $4 GB package with $5 GB traffic in $1 ($2). There:" >&2
+    echo "lightnode: no $3 vCPU / $4 GB package billed by traffic in $1 ($2). There:" >&2
     jq -r '.packages[] | "  \(.packageCode): \(.cpu) vCPU, \(.memory) GB, traffic \(.freeFlow // "-")"' <<<"$out" >&2
     echo "  fields: $(fields <<<"$out")" >&2
     exit 1

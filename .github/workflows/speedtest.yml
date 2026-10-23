@@ -40,8 +40,6 @@ env:
   # the first run, and later runs check it.
   OOKLA_SHA256: ""
   IMAGE: "Ubuntu 24.04"
-  # LightNode packages with 1000 GB of traffic a month have no bandwidth cap.
-  TRAFFIC_GB: "1000"
 
 jobs:
   # The static Linux client of this commit. No environment, so no secret:
