@@ -1,0 +1,47 @@
+# Made from packaging/homebrew/sshuttle2.rb.in in allwinpower/sshuttle2 by
+# its release workflow. Changes here are overwritten by the next release.
+class Sshuttle2 < Formula
+  desc "VPN over a plain SSH login"
+  homepage "https://github.com/allwinpower/sshuttle2"
+  license "LGPL-2.1-or-later"
+
+  # The version comes from the URLs.
+  on_macos do
+    on_arm do
+      url "{{BASE}}/sshuttle2-{{VERSION}}-macos-arm64.tar.gz"
+      sha256 "{{SHA256_MACOS_ARM64}}"
+    end
+    on_intel do
+      url "{{BASE}}/sshuttle2-{{VERSION}}-macos-amd64.tar.gz"
+      sha256 "{{SHA256_MACOS_AMD64}}"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "{{BASE}}/sshuttle2-{{VERSION}}-linux-arm64.tar.gz"
+      sha256 "{{SHA256_LINUX_ARM64}}"
+    end
+    on_intel do
+      url "{{BASE}}/sshuttle2-{{VERSION}}-linux-amd64.tar.gz"
+      sha256 "{{SHA256_LINUX_AMD64}}"
+    end
+  end
+
+  def install
+    bin.install "sshuttle2"
+  end
+
+  def caveats
+    <<~EOS
+      Routing traffic (pf, nft or tun mode) asks for your password, because
+      the firewall rules need root. A SOCKS5 proxy needs no root:
+        sshuttle2 -r user@host --socks5 127.0.0.1:1080
+      On Linux, nft mode needs the system's nft command (package nftables).
+    EOS
+  end
+
+  test do
+    assert_match "sshuttle2 #{version}", shell_output("#{bin}/sshuttle2 --version")
+  end
+end

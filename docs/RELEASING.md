@@ -1,6 +1,6 @@
 # Releasing
 
-A version tag publishes a release. [release.yml](../.github/workflows/release.yml) runs [build-release.yml](../.github/workflows/build-release.yml), which builds every file and installs it on several Linux distributions. Then it publishes the GitHub Release.
+A version tag publishes a release. [release.yml](../.github/workflows/release.yml) runs [build-release.yml](../.github/workflows/build-release.yml), which builds every file. It installs them on several Linux distributions, and installs the Homebrew formula on macOS and Linux. Then release.yml publishes the GitHub Release. For a final release, it also commits the new formula to [allwinpower/homebrew-tap](https://github.com/allwinpower/homebrew-tap).
 
 ## Steps
 
@@ -21,7 +21,9 @@ A version tag publishes a release. [release.yml](../.github/workflows/release.ym
 
 3. The Release workflow takes about 15 minutes. If the tag and `Cargo.toml` disagree, or the CHANGELOG section has no date, it stops and publishes nothing.
 
-**Prerelease:** version `0.2.0-rc.1`, tag `v0.2.0-rc.1`. It uses the `0.2.0` section of the CHANGELOG, and GitHub marks it as a prerelease.
+**Prerelease:** version `0.2.0-rc.1`, tag `v0.2.0-rc.1`. It uses the `0.2.0` section of the CHANGELOG, and GitHub marks it as a prerelease. Homebrew does not get it.
+
+**Homebrew token:** the release job pushes the formula with the `HOMEBREW_TAP_TOKEN` secret. That is a fine-grained token with contents read and write on `allwinpower/homebrew-tap` only. When it expires, make a new one and run `pbpaste | gh secret set HOMEBREW_TAP_TOKEN -R allwinpower/sshuttle2`. Then rerun the failed `homebrew` job.
 
 **If publishing fails halfway:** rerun the failed jobs. The publish step finds its draft and fills it in. It never changes a published release. To fix a bad release, publish a new version.
 
@@ -31,7 +33,7 @@ A version tag publishes a release. [release.yml](../.github/workflows/release.ym
 
 | File | What |
 |---|---|
-| `sshuttle2-VERSION-{macos,linux}-{x86_64,arm64}.tar.gz` | The client, licenses and README. The Linux clients are static (musl) and run on any distribution. |
+| `sshuttle2-VERSION-{macos,linux}-{amd64,arm64}.tar.gz` | The client, licenses and README. `amd64` is x86_64, named so because Homebrew misreads `-x86_64` in a prerelease as version 86.64. The Linux clients are static (musl) and run on any distribution. |
 | `sshuttle2_VERSION_{amd64,arm64}.deb` | Debian and Ubuntu package |
 | `sshuttle2-VERSION-1.{x86_64,aarch64}.rpm` | Fedora, RHEL and compatible package |
 | `sshuttle2-VERSION-src.tar.gz` | The source, as `git archive` of the tag |

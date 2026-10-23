@@ -231,3 +231,51 @@ jobs:
           docker run --rm -e VERSION
           -v "$PWD/dist:/dist:ro" -v "$PWD/packaging:/packaging:ro"
           "$IMAGE" sh /packaging/install-test.sh
+
+  # The formula from this build's files, audited, installed and tested with
+  # Homebrew as `brew install allwinpower/tap/sshuttle2` will use it.
+  homebrew-test:
+    needs: [check, assemble]
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.runner }}
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+      HOMEBREW_NO_ENV_HINTS: 1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # Homebrew reads the version from the URL, so the files sit under
+      # v$VERSION/ as they do in a GitHub release.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release
+          path: ${{ runner.temp }}/download/v${{ needs.check.outputs.version }}
+      - env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Homebrew is on the Linux runners too, but not on their PATH.
+          command -v brew >/dev/null || eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          files=$RUNNER_TEMP/download/v$VERSION
+          brew tap-new --no-git local/test
+          formula=$(brew --repository local/test)/Formula/sshuttle2.rb
+          # Audit the formula as it will be published...
+          packaging/homebrew/formula.sh "$VERSION" "$files/SHA256SUMS" >"$formula"
+          cat "$formula"
+          brew audit --strict --formula local/test/sshuttle2
+          # The formula has no version line: Homebrew reads it from the
+          # GitHub release URLs, and must read exactly this one.
+          read_version=$(brew info --json=v2 local/test/sshuttle2 | jq -r '.formulae[0].versions.stable')
+          if [ "$read_version" != "$VERSION" ]; then
+            echo "::error::Homebrew reads version $read_version from the release URLs, not $VERSION"
+            exit 1
+          fi
+          # ...then install it from this build's files. A file:// URL tells
+          # Homebrew no version, so formula.sh states it there.
+          packaging/homebrew/formula.sh "$VERSION" "$files/SHA256SUMS" "file://$files" >"$formula"
+          brew install --formula local/test/sshuttle2
+          brew test local/test/sshuttle2
+          sshuttle2 --version
