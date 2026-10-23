@@ -15,6 +15,9 @@
 #   lightnode.sh delete UUID               deletes one VM
 #   lightnode.sh sweep PREFIX REGION       deletes every VM named PREFIX* in REGION
 #
+# delete and sweep touch only VMs named s2bench-*: the account's other
+# servers are never deleted, whatever ID or prefix they are given.
+#
 # The token comes from LIGHTNODE_TOKEN. It reaches curl through a file
 # descriptor, never a command line, and nothing here prints it.
 # API reference: https://apidoc.lightnode.com/en/8495480m0
@@ -183,6 +186,8 @@ ip)
   exit 1
   ;;
 delete)
+  name=$(call GET "/instance/detail?ecsResourceUUID=$1" | jq -r '.instance.instanceName // empty')
+  [[ $name == s2bench-* ]] || { echo "lightnode: VM $1 is named '${name:-?}', not s2bench-*; not deleting it" >&2; exit 1; }
   out=$(call POST /instance/release "$(jq -n --arg u "$1" '{ecsResourceUUID: $u}')")
   task=$(jq -r '.asyncTaskInfo.asyncTaskUUID // empty' <<<"$out")
   [ -n "$task" ] || { echo "lightnode: delete of $1 answered without a task; fields: $(fields <<<"$out")" >&2; exit 1; }
@@ -190,6 +195,7 @@ delete)
   ;;
 sweep)
   prefix=$1 region=$2
+  [[ $prefix == s2bench-* ]] || { echo "lightnode: sweep deletes only s2bench-* VMs, not $prefix*" >&2; exit 1; }
   # Delete, then look again: a VM still being created refuses to be deleted,
   # and a deleted one may stay listed for a while with a final status.
   for attempt in $(seq 1 20); do
