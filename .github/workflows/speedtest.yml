@@ -36,9 +36,9 @@ concurrency:
 env:
   SSHUTTLE_VERSION: "2.0.0"
   OOKLA_VERSION: "1.2.0"
-  # Ookla publishes no checksum. setup-vm.sh prints it; pin it here after
-  # the first run, and later runs check it.
-  OOKLA_SHA256: ""
+  # Ookla publishes no checksum: this is the x86_64 tarball's, as first
+  # downloaded on 24 October 2026. setup-vm.sh prints it and checks it.
+  OOKLA_SHA256: "5690596c54ff9bed63fa3732f818a05dbc2db19ad36ed68f21ca5f64d5cfeeb7"
   IMAGE: "Ubuntu 24.04"
 
 jobs:
