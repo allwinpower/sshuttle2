@@ -1,0 +1,58 @@
+# .deb and .rpm of a release client. `cargo xtask package TARGET` runs nfpm
+# with VERSION, ARCH (amd64 or arm64) and BINARY set; nfpm names the
+# architecture the rpm way (x86_64, aarch64) itself.
+name: sshuttle2
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+release: "1"
+section: net
+priority: optional
+maintainer: Allwin <111454915+allwinpower@users.noreply.github.com>
+homepage: https://github.com/allwinpower/sshuttle2
+license: LGPL-2.1-or-later
+description: |-
+  A VPN over a plain SSH login.
+  If you can log in to a server with SSH, sshuttle2 sends your traffic
+  through it: TCP and DNS, and in tun mode all UDP too. Nothing is
+  installed on the server and it needs no root there.
+
+contents:
+  - src: ${BINARY}
+    dst: /usr/bin/sshuttle2
+    expand: true
+    file_info:
+      mode: 0755
+  - src: README.md
+    dst: /usr/share/doc/sshuttle2/README.md
+  # Debian keeps license texts in the doc directory, RPM in /usr/share/licenses.
+  - src: LICENSE
+    dst: /usr/share/doc/sshuttle2/copyright
+    packager: deb
+  - src: third_party/ipstack/LICENSE
+    dst: /usr/share/doc/sshuttle2/LICENSE-ipstack
+    packager: deb
+  - src: LICENSE
+    dst: /usr/share/licenses/sshuttle2/LICENSE
+    type: license
+    packager: rpm
+  - src: third_party/ipstack/LICENSE
+    dst: /usr/share/licenses/sshuttle2/LICENSE-ipstack
+    type: license
+    packager: rpm
+
+# The client runs the user's ssh. Firewall modes need root (sudo or doas);
+# nft mode needs the nft command. The SOCKS5 proxy needs neither.
+overrides:
+  deb:
+    depends:
+      - openssh-client
+    recommends:
+      - nftables
+      - sudo
+  rpm:
+    depends:
+      - openssh-clients
+    recommends:
+      - nftables
+      - sudo
