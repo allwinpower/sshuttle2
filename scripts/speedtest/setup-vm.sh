@@ -45,4 +45,4 @@ if [ "$role" = client ]; then
   ln -sf /opt/sshuttle/bin/sshuttle /usr/local/bin/sshuttle
   echo "sshuttle $(sshuttle --version)"
 fi
-echo "$role ready: $(nproc) vCPU, $(awk '/MemTotal/ {printf "%.1f GB", $2 / 1048576}' /proc/meminfo), $(. /etc/os-release && echo "$PRETTY_NAME"), kernel $(uname -r)"
+echo "$role ready: $(nproc) vCPU, $(awk '/MemTotal/ {printf "%.1f GB", $2 / 1048576}' /proc/meminfo), $(awk -F= '$1 == "PRETTY_NAME" {gsub(/"/, "", $2); print $2}' /etc/os-release), kernel $(uname -r)"

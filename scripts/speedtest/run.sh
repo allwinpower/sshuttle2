@@ -191,7 +191,7 @@ jq -cn --arg started "$(date -u +%FT%TZ)" --argjson rounds "$ROUNDS" --arg modes
   --arg sshuttle "$(sshuttle --version 2>&1 | head -1)" \
   --arg ookla "$(speedtest --accept-license --accept-gdpr --version 2>&1 | head -1)" \
   --argjson cpus "$(nproc)" --argjson mem "$(awk '/MemTotal/ {print int($2 / 1024)}' /proc/meminfo)" \
-  --arg os "$(. /etc/os-release && echo "$PRETTY_NAME"), kernel $(uname -r)" \
+  --arg os "$(awk -F= '$1 == "PRETTY_NAME" {gsub(/"/, "", $2); print $2}' /etc/os-release), kernel $(uname -r)" \
   '{type: "meta", started: $started, rounds: $rounds, modes: ($modes | split(" ")),
     versions: {sshuttle2: $sshuttle2, sshuttle: $sshuttle, ookla: $ookla},
     client: {cpus: $cpus, mem_mb: $mem, os: $os}}' >>"$out"

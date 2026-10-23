@@ -31,8 +31,8 @@ target_ip=172.31.$net.10
 p=${E2E_PREFIX:-ts-speedtest}
 
 cleanup() {
-  docker rm -f $p-client $p-server $p-target >/dev/null 2>&1 || true
-  docker network rm $p-front $p-far >/dev/null 2>&1 || true
+  docker rm -f "$p-client" "$p-server" "$p-target" >/dev/null 2>&1 || true
+  docker network rm "$p-front" "$p-far" >/dev/null 2>&1 || true
   rm -rf "${work:-}"
 }
 trap cleanup EXIT
@@ -113,16 +113,16 @@ COPY speedtest /usr/local/bin/speedtest
 COPY run.sh sample.py sshuttle2 target.py /root/
 RUN chmod 755 /usr/local/bin/speedtest /root/run.sh /root/sshuttle2 && chmod 600 /root/.ssh/*
 EOF
-docker build -q -t $p "$work" >/dev/null
+docker build -q -t "$p" "$work" >/dev/null
 
-docker network create $p-front >/dev/null
-docker network create --internal --subnet $far $p-far >/dev/null
-docker run -d --name $p-target --network $p-far --ip $target_ip $p python3 /root/target.py >/dev/null
-docker run -d --name $p-server --network $p-front $p /usr/sbin/sshd -D -e >/dev/null
-docker network connect $p-far $p-server
-docker run -d --name $p-client --network $p-front --cap-add NET_ADMIN --device /dev/net/tun $p sleep infinity >/dev/null
-server_ip=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$p-front\").IPAddress}}" $p-server)
-docker exec -i $p-client sh -c 'cat >/root/.ssh/config' <<EOF
+docker network create "$p-front" >/dev/null
+docker network create --internal --subnet "$far" "$p-far" >/dev/null
+docker run -d --name "$p-target" --network "$p-far" --ip "$target_ip" "$p" python3 /root/target.py >/dev/null
+docker run -d --name "$p-server" --network "$p-front" "$p" /usr/sbin/sshd -D -e >/dev/null
+docker network connect "$p-far" "$p-server"
+docker run -d --name "$p-client" --network "$p-front" --cap-add NET_ADMIN --device /dev/net/tun "$p" sleep infinity >/dev/null
+server_ip=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$p-front\").IPAddress}}" "$p-server")
+docker exec -i "$p-client" sh -c 'cat >/root/.ssh/config' <<EOF
 Host near-1c
   HostName $server_ip
 Host *
@@ -134,14 +134,14 @@ EOF
 
 fail() {
   echo "FAIL: $*" >&2
-  docker exec $p-client cat /root/run.log >&2 || true
+  docker exec "$p-client" cat /root/run.log >&2 || true
   exit 1
 }
 
-docker exec -e SERVERS=near-1c -e ROUNDS=1 -e RUNNER_IP=192.0.2.1 $p-client /root/run.sh ||
+docker exec -e SERVERS=near-1c -e ROUNDS=1 -e RUNNER_IP=192.0.2.1 "$p-client" /root/run.sh ||
   fail "run.sh exited with $?"
-docker exec $p-client cat /root/run.done | grep -qx ok || fail "run.done is not ok"
-docker cp -q $p-client:/root/results.jsonl "$work/results.jsonl"
+docker exec "$p-client" cat /root/run.done | grep -qx ok || fail "run.done is not ok"
+docker cp -q "$p-client:/root/results.jsonl" "$work/results.jsonl"
 
 check() { jq -se "$1" "$work/results.jsonl" >/dev/null || fail "$2"; }
 check '[.[] | select(.type == "result")] | length == 6' "expected 6 results"
