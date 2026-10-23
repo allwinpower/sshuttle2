@@ -23,6 +23,12 @@ env:
 
 jobs:
   linux:
+    # Every push to main, and every pull request that touches code. Without
+    # a status function, a skipped release-files (every push) would skip
+    # this too; it also runs if release-files failed, so a broken diff never
+    # hides code.
+    needs: release-files
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.release-files.outputs.code != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,12 +74,15 @@ jobs:
       - run: cargo clippy --workspace --all-targets --target aarch64-apple-darwin
 
   release-files:
-    # Whether this pull request touches the release build: release-build
-    # runs only then, as it needs macOS and arm64 runners.
+    # What this pull request touches. changed: the release build, so
+    # release-build runs, as it needs macOS and arm64 runners. code:
+    # anything but docs, so linux runs; false only when every file is on
+    # the short list below (testdata .md files are not: linux diffs them).
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       changed: ${{ steps.diff.outputs.changed }}
+      code: ${{ steps.diff.outputs.code }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -82,11 +91,17 @@ jobs:
         run: |
           set -euo pipefail
           # HEAD is the merge commit; its first parent is the base branch.
-          git diff --name-only HEAD^1 HEAD | tee changed.txt
+          # No renames: a file moved into docs/ still lists where it left.
+          git diff --no-renames --name-only HEAD^1 HEAD | tee changed.txt
           if grep -qE '^(\.github/workflows/(build-release|release)\.yml|packaging/|xtask/|crates/client/build\.rs|Cargo\.(toml|lock)|rust-toolchain\.toml|CHANGELOG\.md)' changed.txt; then
             echo "changed=true" >>"$GITHUB_OUTPUT"
           else
             echo "changed=false" >>"$GITHUB_OUTPUT"
+          fi
+          if [ ! -s changed.txt ] || grep -qvE '^(docs/|README\.md$|TODO\.md$|LICENSE|\.gitignore$)' changed.txt; then
+            echo "code=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "code=false" >>"$GITHUB_OUTPUT"
           fi
 
   release-build:
@@ -110,7 +125,13 @@ jobs:
           echo "linux=${{ needs.linux.result }}"
           echo "release-files=${{ needs.release-files.result }}"
           echo "release-build=${{ needs.release-build.result }}"
-          [ "${{ needs.linux.result }}" = "success" ] || exit 1
+          echo "code=${{ needs.release-files.outputs.code }}"
+          # linux may skip only a pull request that release-files saw
+          # touch nothing but docs.
+          case "${{ needs.linux.result }}/${{ needs.release-files.result }}/${{ needs.release-files.outputs.code }}" in
+            success/*/* | skipped/success/false) ;;
+            *) exit 1 ;;
+          esac
           # release-files runs for pull requests only; release-build only
           # when it says so.
           case "${{ needs.release-files.result }}/${{ needs.release-build.result }}" in

@@ -77,7 +77,7 @@ What changed:
 
 ## Vitals after surgery
 
-Measured on the Mac. Same Wi-Fi, same server (2 vCPU, 4 GB), same day (23 October 2026). Single samples; a repeat with medians is on the [TODO](TODO.md) list.
+Measured on the Mac. Same Wi-Fi, same server (2 vCPU, 4 GB), same day (23 October 2026). Single samples. A repeat with medians, on rented servers: [speed test results](docs/speed-results.md).
 
 | | Download | Page wait, idle | Page wait, during a download |
 |---|---:|---:|---:|

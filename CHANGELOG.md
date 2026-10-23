@@ -4,6 +4,7 @@ What changed in each release of sshuttle2. A release's section here becomes its 
 
 ## [Unreleased]
 
+- An Arch Linux package (`.pkg.tar.zst`, x86_64 and aarch64) comes with every final release: `sudo pacman -U` its link. The AUR package `sshuttle2-bin` follows when the AUR takes new accounts again.
 - **Slow or distant servers no longer stall the tunnel.** Each connection kept at least 256 KiB in flight, so when the path was much slower than that (as across an ocean, where Ookla's speedtest stalled in every run), several downloads together queued seconds of data in front of every other connection. A connection's window now also shrinks below its starting size while it only builds a queue, and grows back when the path gets faster.
 
 ## [0.1.0] - 2026-10-23

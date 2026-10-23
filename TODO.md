@@ -16,13 +16,12 @@
     | 4 at once | 30.8 Mbit/s | 37.6 Mbit/s |
     | first byte under load | 1713 ms | 296 ms |
 
-  To do:
-  1. Run the [Speed test](docs/SPEEDTEST.md) workflow: fresh servers of both sizes, near and far, medians of 3 rounds, with CPU and memory.
-  2. Optional, for the Wi-Fi view: in `scripts/mac-speed-check.sh`, take the median of 5 page waits and of 2 or more downloads, and run it on a quiet network.
-  3. Update the Benchmarks table in `README.md`, "Vitals after surgery" in `STORY.md`, and the table, charts and numbers in `docs/story/index.html`.
-  4. Never commit server addresses. Name the servers by size only.
+  Done on rented servers: [docs/speed-results.md](docs/speed-results.md), from the [Speed test](docs/SPEEDTEST.md) workflow, linked from the README and the story. Still open, for the Wi-Fi view only: in `scripts/mac-speed-check.sh`, take the median of 5 page waits and of 2 or more downloads, and run it on a quiet network. Never commit server addresses; name the servers by size only.
 
-- [ ] **One download is slower than plain SSH.** On the same path, a single download got 22.9 Mbit/s through sshuttle2 and 37.9 Mbit/s through `ssh -D` (see above), while 4 at once got more than `ssh -D`. Find what holds one lane back, for example a window that stops growing too early, and fix it without losing the low page wait under load.
+- [ ] **One download is slower than plain SSH.** On the same path, a single download got 22.9 Mbit/s through sshuttle2 and 37.9 Mbit/s through `ssh -D` (see above), while 4 at once got more than `ssh -D`. Find what holds one lane back, and fix it without losing the low page wait under load.
+  Likely cause: a window grows past its starting 256 KiB only while a quarter of it drains in under half the smallest RTT seen ([docs/PROTOCOL.md](docs/PROTOCOL.md), section 3). Once the RTT under load is more than twice the idle one, as on a busy Wi-Fi, one lane stays at 256 KiB per round trip.
+
+- [ ] **Confirm the far-path fix on real servers.** With the server 88 ms away, sshuttle2 got 1.8–2.6 Mbit/s and Ookla stalled in every run ([docs/speed-results.md](docs/speed-results.md)). The single SSH connection got only a few Mbit/s on that path (sshuttle: 1.3–1.7 Mbit/s), and windows never shrank below 256 KiB, so Ookla's 8 connections queued 5–7 s. The brake (PROTOCOL.md, section 3) bounds that queue: in an emulated 88 ms / 3 Mbit/s path, ping under load fell from 5.1 s to 0.29 s. To do: run the far rows of the Speed test (`rounds=1` first) and update the results.
 
 
 - [ ] **Try mimalloc in the server too, after 0.1.0.** The uploaded server is also built with musl, so mimalloc could speed it up as well, as it did the Linux client (README, "Linux client and mimalloc"). It would add about 10% to the 1.3 MB that is uploaded on first use, so it is a separate decision.
