@@ -108,8 +108,10 @@ ol.toc { padding-left: 4ch; }
   margin-bottom: 1em;
 }
 .shot { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.4em; }
+/* height: auto, or the height="1380" attribute wins and stretches the image. */
 .shot img {
   width: 100%;
+  height: auto;
   aspect-ratio: 720 / 1380;
   border: 1px solid var(--fg);
   background: var(--bg);
