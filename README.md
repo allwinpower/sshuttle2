@@ -59,23 +59,35 @@ Reproduce on Linux, with Linux builds of the server and of each client: `scripts
 | tun | macOS, Linux | TCP, all UDP, DNS, IPv6 | live on a Mac; Linux containers, in CI |
 | SOCKS5 | macOS, Linux | TCP (CONNECT), UDP (ASSOCIATE) | in CI |
 
-There are no prebuilt binaries yet. Build from source (below).
+## Install
 
-## Quick start
+**macOS or Linux, with [Homebrew](https://brew.sh):**
 
 ```bash
-git clone https://github.com/allwinpower/sshuttle2
+brew install allwinpower/tap/sshuttle2
+```
+
+**Any Linux or macOS, with the install script.** It downloads the latest release, checks it against the release's `SHA256SUMS`, and puts `sshuttle2` in `/usr/local/bin`. For `~/.local/bin` instead, end the command with `sh -s -- --user`.
+
+```bash
+curl -fsSL https://github.com/allwinpower/sshuttle2/releases/latest/download/install.sh | sh
+```
+
+**Debian, Ubuntu, Fedora, RHEL and compatible:** download the `.deb` or `.rpm` for your CPU from the [latest release](https://github.com/allwinpower/sshuttle2/releases/latest), then install it:
+
+```bash
+sudo apt install ./sshuttle2_*_amd64.deb
 ```
 
 ```bash
-cd sshuttle2 && cargo xtask dist
+sudo dnf install ./sshuttle2-*.x86_64.rpm
 ```
 
-```bash
-target/release/sshuttle2 -r user@host 0/0 --dns
-```
+These packages do not update themselves: install the next release's file the same way. With Homebrew, `brew upgrade` does it.
 
-`cargo xtask dist` needs Rust ([rustup](https://rustup.rs) installs the pinned toolchain), zig and cargo-zigbuild. See [Build](#build).
+**By hand:** every [release](https://github.com/allwinpower/sshuttle2/releases) has a `.tar.gz` for each system (`macos` or `linux`, `amd64` or `arm64`) and a `SHA256SUMS` file. The Linux binaries are static and run on any distribution. The macOS binaries are not notarized, so after a browser download, run `xattr -d com.apple.quarantine sshuttle2` once.
+
+**From source:** see [Build](#build).
 
 ## Use
 
@@ -156,10 +168,14 @@ brew install zig cargo-zigbuild
 
 On Linux, install zig from your package manager or [ziglang.org](https://ziglang.org/download/), then `cargo install cargo-zigbuild`.
 
-Build the Linux servers, then a client that embeds them:
+Get the source, then build the Linux servers and a client that embeds them:
 
 ```bash
-cargo xtask dist
+git clone https://github.com/allwinpower/sshuttle2
+```
+
+```bash
+cd sshuttle2 && cargo xtask dist
 ```
 
 The result is `target/release/sshuttle2`. A plain `cargo build` works too, but that client embeds no servers and needs `--server-bin PATH`.
