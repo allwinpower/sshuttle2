@@ -2,7 +2,7 @@
 
 What changed in each release of sshuttle2. A release's section here becomes its GitHub Release notes ([docs/RELEASING.md](docs/RELEASING.md)).
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-10-23
 
 The first release.
 
