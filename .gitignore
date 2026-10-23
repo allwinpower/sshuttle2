@@ -20,6 +20,7 @@
 Thumbs.db
 
 # Local environment and secrets
+/secret/
 .env
 .env.*
 *.pem
