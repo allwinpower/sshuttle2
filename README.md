@@ -30,6 +30,8 @@ These are single samples on a shared Wi-Fi. A second run that evening, with the 
 
 Reproduce on a Mac: `scripts/mac-speed-check.sh [user@]host...`. Measure a server in SOCKS5 mode, against OpenSSH's own `ssh -D`: `scripts/bench.sh [user@]host`.
 
+Fresh numbers on rented servers, with server and client CPU and memory: the [Speed test](docs/SPEEDTEST.md) workflow (the owner starts it).
+
 ### Linux client and mimalloc
 
 The Linux client is one static binary, built with musl, so it runs on every distribution. But musl's memory allocator is slow, and the tunnel allocates memory for the data it moves. So the Linux client uses [mimalloc](https://github.com/microsoft/mimalloc) instead. The macOS client keeps the system allocator.
