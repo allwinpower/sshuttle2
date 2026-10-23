@@ -63,13 +63,13 @@ create)
   for spec in $roles; do
     IFS=: read -r role region cpu mem <<<"$spec"
     zone=$("$ln" zone "$region")
-    found=$("$ln" package "$region" "$zone" "$cpu" "$mem")
-    read -r pkg bw <<<"$found"
+    found=$("$ln" package "$region" "$zone" "$cpu" "$mem" "${TRAFFIC_GB:-1000}")
+    read -r pkg traffic <<<"$found"
     image=$("$ln" image "$region" "${IMAGE:-Ubuntu 24.04}")
     created=$(VM_PASSWORD=$(cat "$state/password") "$ln" create "$prefix-$role" "$region" "$zone" "$pkg" "$image")
     read -r task uuid <<<"$created"
-    echo "$role: $region, $cpu vCPU / $mem GB, package $pkg, bandwidth $bw, $uuid"
-    echo "$role $region $uuid $task $pkg $bw $cpu $mem" >>"$state/vms"
+    echo "$role: $region, $cpu vCPU / $mem GB, package $pkg ($traffic GB traffic), $uuid"
+    echo "$role $region $uuid $task $pkg $traffic $cpu $mem" >>"$state/vms"
   done
   while read -r -u 3 role _ _ task _; do
     "$ln" wait "$task"
@@ -86,7 +86,7 @@ create)
   jq -Rn --arg commit "${GITHUB_SHA:-}" \
     --arg run "${GITHUB_SERVER_URL:-}/${GITHUB_REPOSITORY:-}/actions/runs/${GITHUB_RUN_ID:-}" \
     '{commit: $commit, run_url: $run,
-      vms: ([inputs | split(" ") | {(.[0]): {region: .[1], package: .[4], bandwidth: .[5],
+      vms: ([inputs | split(" ") | {(.[0]): {region: .[1], package: .[4], traffic_gb: .[5],
         cpus: (.[6] | tonumber), mem_gb: (.[7] | tonumber)}}] | add)}' \
     <"$state/vms" >"$state/layout.json"
   ;;
@@ -214,6 +214,14 @@ collect)
 
 cleanup)
   failed=0
+  # First every VM this run created, by its ID; then by name, for one whose
+  # create call failed before it answered.
+  if [ -s "$state/vms" ]; then
+    while read -r -u 3 role _ uuid _; do
+      echo "deleting $role ($uuid)"
+      "$ln" delete "$uuid" || failed=1
+    done 3<"$state/vms"
+  fi
   for r in "$@"; do
     [ -z "$r" ] || "$ln" sweep "$prefix-" "$r" || failed=1
   done

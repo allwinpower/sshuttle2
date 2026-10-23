@@ -8,7 +8,7 @@ Client: 2 vCPU / 4 GB in region-a, Ubuntu 24.04.1 LTS, kernel 6.8.0-45-generic.
 ### near-1c: 1 vCPU / 2 GB, same region as the client (region-a)
 
 Ookla server 12345: Example Net, Example City, Exampleland.
-LightNode package pkg-c1m2 (bandwidth 1000).
+LightNode package pkg-c1m2 (1000 GB traffic a month).
 
 | | Download | Upload | Ping | Ping, downloading | Ping, uploading | Server CPU | Server RAM | Client CPU | Client RAM |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
