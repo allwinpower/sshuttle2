@@ -12,8 +12,8 @@ class Sshuttle2 < Formula
       sha256 "{{SHA256_MACOS_ARM64}}"
     end
     on_intel do
-      url "{{BASE}}/sshuttle2-{{VERSION}}-macos-x86_64.tar.gz"
-      sha256 "{{SHA256_MACOS_X86_64}}"
+      url "{{BASE}}/sshuttle2-{{VERSION}}-macos-amd64.tar.gz"
+      sha256 "{{SHA256_MACOS_AMD64}}"
     end
   end
 
@@ -23,8 +23,8 @@ class Sshuttle2 < Formula
       sha256 "{{SHA256_LINUX_ARM64}}"
     end
     on_intel do
-      url "{{BASE}}/sshuttle2-{{VERSION}}-linux-x86_64.tar.gz"
-      sha256 "{{SHA256_LINUX_X86_64}}"
+      url "{{BASE}}/sshuttle2-{{VERSION}}-linux-amd64.tar.gz"
+      sha256 "{{SHA256_LINUX_AMD64}}"
     end
   end
 

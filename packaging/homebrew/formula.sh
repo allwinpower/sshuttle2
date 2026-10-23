@@ -24,14 +24,14 @@ sum() {
 }
 
 macos_arm64=$(sum macos-arm64)
-macos_x86_64=$(sum macos-x86_64)
+macos_amd64=$(sum macos-amd64)
 linux_arm64=$(sum linux-arm64)
-linux_x86_64=$(sum linux-x86_64)
+linux_amd64=$(sum linux-amd64)
 
 sed -e "s|{{BASE}}|$base|g" \
     -e "s|{{VERSION}}|$version|g" \
     -e "s|{{SHA256_MACOS_ARM64}}|$macos_arm64|" \
-    -e "s|{{SHA256_MACOS_X86_64}}|$macos_x86_64|" \
+    -e "s|{{SHA256_MACOS_AMD64}}|$macos_amd64|" \
     -e "s|{{SHA256_LINUX_ARM64}}|$linux_arm64|" \
-    -e "s|{{SHA256_LINUX_X86_64}}|$linux_x86_64|" \
+    -e "s|{{SHA256_LINUX_AMD64}}|$linux_amd64|" \
     "$template"

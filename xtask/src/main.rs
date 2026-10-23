@@ -141,10 +141,12 @@ fn client_bin(root: &Path, target: &str) -> PathBuf {
     root.join("target").join(target).join("release/sshuttle2")
 }
 
-/// Release asset names use `macos`/`linux` and `x86_64`/`arm64`.
+/// Release asset names use `macos`/`linux` and `amd64`/`arm64`. Not
+/// `x86_64`: Homebrew reads `-x86_64.tar.gz` as version 86.64 whenever the
+/// version has a prerelease part, as in 0.1.0-rc.1.
 fn platform(target: &str) -> Result<(&'static str, &'static str)> {
     let arch = match target.split('-').next() {
-        Some("x86_64") => "x86_64",
+        Some("x86_64") => "amd64",
         Some("aarch64") => "arm64",
         _ => bail!("no release name for the CPU of {target}"),
     };
@@ -187,7 +189,7 @@ fn package(root: &Path, target: &str) -> Result<()> {
 
     if os == "linux" {
         let (deb_arch, rpm_arch) = match arch {
-            "x86_64" => ("amd64", "x86_64"),
+            "amd64" => ("amd64", "x86_64"),
             _ => ("arm64", "aarch64"),
         };
         // Named here, not by nfpm: it would write a prerelease as

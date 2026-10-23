@@ -26,18 +26,18 @@ sudo dnf install ./sshuttle2-{{VERSION}}-1.x86_64.rpm
 
 A `.deb` or `.rpm` from here does not update itself: install the next release's file the same way.
 
-**By hand**: download `SHA256SUMS` and the `.tar.gz` for your system, then (on macOS, `shasum -a 256` instead of `sha256sum`):
+**By hand**: download `SHA256SUMS` and the `.tar.gz` for your system (`amd64` is x86_64, Intel and AMD), then (on macOS, `shasum -a 256` instead of `sha256sum`):
 
 ```bash
 sha256sum -c --ignore-missing SHA256SUMS
 ```
 
 ```bash
-tar -xzf sshuttle2-{{VERSION}}-linux-x86_64.tar.gz
+tar -xzf sshuttle2-{{VERSION}}-linux-amd64.tar.gz
 ```
 
 ```bash
-sudo install -m 755 sshuttle2-{{VERSION}}-linux-x86_64/sshuttle2 /usr/local/bin/
+sudo install -m 755 sshuttle2-{{VERSION}}-linux-amd64/sshuttle2 /usr/local/bin/
 ```
 
 The macOS binaries are not notarized. If you downloaded one with a browser, clear the quarantine flag once: `xattr -d com.apple.quarantine sshuttle2`. The install script does not need this.

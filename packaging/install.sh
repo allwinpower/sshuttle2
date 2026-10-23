@@ -37,7 +37,7 @@ case $(uname -s) in
     *) die "sshuttle2 runs on macOS and Linux, not $(uname -s)" ;;
 esac
 case $(uname -m) in
-    x86_64 | amd64) arch=x86_64 ;;
+    x86_64 | amd64) arch=amd64 ;;
     arm64 | aarch64) arch=arm64 ;;
     *) die "no sshuttle2 build for $(uname -m)" ;;
 esac

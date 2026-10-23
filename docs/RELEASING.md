@@ -33,7 +33,7 @@ A version tag publishes a release. [release.yml](../.github/workflows/release.ym
 
 | File | What |
 |---|---|
-| `sshuttle2-VERSION-{macos,linux}-{x86_64,arm64}.tar.gz` | The client, licenses and README. The Linux clients are static (musl) and run on any distribution. |
+| `sshuttle2-VERSION-{macos,linux}-{amd64,arm64}.tar.gz` | The client, licenses and README. `amd64` is x86_64, named so because Homebrew misreads `-x86_64` in a prerelease as version 86.64. The Linux clients are static (musl) and run on any distribution. |
 | `sshuttle2_VERSION_{amd64,arm64}.deb` | Debian and Ubuntu package |
 | `sshuttle2-VERSION-1.{x86_64,aarch64}.rpm` | Fedora, RHEL and compatible package |
 | `sshuttle2-VERSION-src.tar.gz` | The source, as `git archive` of the tag |
