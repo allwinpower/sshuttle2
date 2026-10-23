@@ -203,8 +203,11 @@ jobs:
           cd dist
           sha256sum -- * >SHA256SUMS
           cat SHA256SUMS
-          # 4 tarballs, 2 .deb, 2 .rpm, the source archive, install.sh
-          [ "$(wc -l <SHA256SUMS)" -eq 10 ] || { echo "::error::expected 10 release files"; exit 1; }
+          # 4 tarballs, 2 .deb, 2 .rpm, the source archive, install.sh, and
+          # for a final version 2 Arch packages
+          want=12
+          [[ $VERSION == *-* ]] && want=10
+          [ "$(wc -l <SHA256SUMS)" -eq "$want" ] || { echo "::error::expected $want release files"; exit 1; }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release
@@ -217,7 +220,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: ["debian:stable", "ubuntu:24.04", "fedora:latest", "almalinux:9", "alpine:latest"]
+        image: ["debian:stable", "ubuntu:24.04", "fedora:latest", "almalinux:9", "archlinux:latest", "alpine:latest"]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
