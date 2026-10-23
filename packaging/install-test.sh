@@ -1,7 +1,8 @@
 #!/bin/sh
 # Installs a release build inside a fresh Linux container and runs it: the
-# .deb with apt or the .rpm with dnf, and install.sh, as root and with
-# --user. The release workflow runs it for several distributions:
+# .deb with apt, the .rpm with dnf or the Arch package with pacman, and
+# install.sh, as root and with --user. The release workflow runs it for
+# several distributions:
 #
 #   docker run --rm -v "$PWD/dist:/dist:ro" -v "$PWD/packaging:/packaging:ro" \
 #       -e VERSION=0.2.0 IMAGE sh /packaging/install-test.sh
@@ -26,6 +27,16 @@ elif command -v dnf >/dev/null 2>&1; then
     dnf install -y -q "$dist/sshuttle2-${VERSION}-1.x86_64.rpm"
     check /usr/bin/sshuttle2
     dnf remove -y -q sshuttle2
+elif command -v pacman >/dev/null 2>&1; then
+    case $VERSION in
+        *-*) echo "no Arch package for a prerelease" ;;
+        *)
+            pacman -Sy --noconfirm >/dev/null
+            pacman -U --noconfirm "$dist/sshuttle2-${VERSION}-1-x86_64.pkg.tar.zst" >/dev/null
+            check /usr/bin/sshuttle2
+            pacman -R --noconfirm sshuttle2 >/dev/null
+            ;;
+    esac
 elif command -v apk >/dev/null 2>&1; then
     apk add -q curl
 fi

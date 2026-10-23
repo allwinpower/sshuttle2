@@ -6,7 +6,8 @@
 //! once and every client from them, so all clients of a version upload the
 //! same server.
 //! `cargo xtask package TARGET`: that client as a tarball in dist/, and for
-//! Linux also as .deb and .rpm (with nfpm).
+//! Linux also as .deb, .rpm and, for final versions, an Arch package (with
+//! nfpm).
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -194,10 +195,19 @@ fn package(root: &Path, target: &str) -> Result<()> {
         };
         // Named here, not by nfpm: it would write a prerelease as
         // 0.1.0~rc.1, and GitHub renames assets with a `~` in them.
-        for (packager, file) in [
+        let mut packages = vec![
             ("deb", format!("sshuttle2_{VERSION}_{deb_arch}.deb")),
             ("rpm", format!("sshuttle2-{VERSION}-1.{rpm_arch}.rpm")),
-        ] {
+        ];
+        // nfpm drops the prerelease part from an Arch package's version, so
+        // 0.2.0-rc.1 would claim to be 0.2.0. Final releases only.
+        if !VERSION.contains('-') {
+            packages.push((
+                "archlinux",
+                format!("sshuttle2-{VERSION}-1-{rpm_arch}.pkg.tar.zst"),
+            ));
+        }
+        for (packager, file) in packages {
             let dest = out.join(file);
             run(Command::new("nfpm")
                 .current_dir(root)
