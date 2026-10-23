@@ -1,0 +1,233 @@
+name: Release build
+
+# Builds every release file into the artifact "release" (notes into
+# "release-notes"), then installs them on several Linux distributions.
+# release.yml runs this for a version tag and publishes the result. ci.yml
+# runs it for pull requests that touch the release build, so a broken one
+# shows up before a tag does. Run it by hand to try a branch: it publishes
+# nothing.
+#
+# Third-party actions are pinned by commit: what they run ends up in the
+# release files.
+on:
+  workflow_call:
+    outputs:
+      version:
+        description: The version in Cargo.toml
+        value: ${{ jobs.check.outputs.version }}
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  NFPM_VERSION: 2.47.0
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: version
+        name: Version, and for a tag that it matches
+        run: |
+          set -euo pipefail
+          # The first top-level `version =` in Cargo.toml is [workspace.package]'s.
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          [ -n "$version" ] || { echo "::error::no version in Cargo.toml"; exit 1; }
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+              echo "::error::tag $GITHUB_REF_NAME, but Cargo.toml says $version"
+              exit 1
+            fi
+            if ! grep -q "^## \[${version%%-*}\] - [0-9]" CHANGELOG.md; then
+              echo "::error::CHANGELOG.md: the ${version%%-*} section needs a date"
+              exit 1
+            fi
+          fi
+      - name: Release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: packaging/release-notes.sh "$VERSION" >notes.md && cat notes.md
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-notes
+          path: notes.md
+          if-no-files-found: error
+
+  # The static Linux servers, built once: every client of a version embeds
+  # the same two, so they all share one upload on the remote host.
+  servers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          # Release builds start clean; and saving the cache looks up zig's
+          # version list online after the build, which can fail on its own.
+          use-cache: false
+      - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2
+        with:
+          tool: cargo-zigbuild
+      - run: cargo xtask servers
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: servers
+          path: dist/server/
+          if-no-files-found: error
+
+  # Static (musl) clients, each built on its own CPU so it can be run.
+  linux:
+    name: linux (${{ matrix.nfpm }})
+    needs: [check, servers]
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            nfpm: x86_64
+            nfpm-sha256: 0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            nfpm: arm64
+            nfpm-sha256: 1c0f5f2999b9a974bfb04fdb0cc3306096de530ac5dbb25d739cc5f5219c919c
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Rust
+        run: |
+          if ! command -v rustup >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+            echo "$HOME/.cargo/bin" >>"$GITHUB_PATH"
+            export PATH=$HOME/.cargo/bin:$PATH
+          fi
+          rustup show active-toolchain || rustup toolchain install
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          # Release builds start clean; and saving the cache looks up zig's
+          # version list online after the build, which can fail on its own.
+          use-cache: false
+      - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2
+        with:
+          tool: cargo-zigbuild
+      - name: nfpm
+        env:
+          FILE: nfpm_${{ env.NFPM_VERSION }}_Linux_${{ matrix.nfpm }}.tar.gz
+          SHA256: ${{ matrix.nfpm-sha256 }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -fsSLO "https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/$FILE"
+          echo "$SHA256  $FILE" | sha256sum -c -
+          tar -xzf "$FILE" nfpm
+          sudo install -m 755 nfpm /usr/local/bin/nfpm
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: servers
+          path: dist/server
+      - name: Build and package
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          cargo xtask client "$TARGET"
+          "target/$TARGET/release/sshuttle2" --version
+          cargo xtask package "$TARGET"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: files-linux-${{ matrix.nfpm }}
+          path: dist/sshuttle2*
+          if-no-files-found: error
+
+  # Both macOS clients on one Apple Silicon runner. Linking on macOS gives
+  # the arm64 binary the ad-hoc signature it needs to run.
+  macos:
+    needs: [check, servers]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: servers
+          path: dist/server
+      - name: Build and package
+        run: |
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo xtask client "$target"
+            cargo xtask package "$target"
+          done
+          target/aarch64-apple-darwin/release/sshuttle2 --version
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            arch -x86_64 target/x86_64-apple-darwin/release/sshuttle2 --version
+          else
+            echo "::notice::No Rosetta on this runner, so the x86_64 build was not run"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: files-macos
+          path: dist/sshuttle2*
+          if-no-files-found: error
+
+  assemble:
+    needs: [check, linux, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: files-*
+          merge-multiple: true
+          path: dist
+      - name: Source archive, install script, checksums
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          git archive --format=tar.gz --prefix="sshuttle2-$VERSION/" -o "dist/sshuttle2-$VERSION-src.tar.gz" HEAD
+          cp packaging/install.sh dist/
+          cd dist
+          sha256sum -- * >SHA256SUMS
+          cat SHA256SUMS
+          # 4 tarballs, 2 .deb, 2 .rpm, the source archive, install.sh
+          [ "$(wc -l <SHA256SUMS)" -eq 10 ] || { echo "::error::expected 10 release files"; exit 1; }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release
+          path: dist/
+          if-no-files-found: error
+
+  install-test:
+    needs: [check, assemble]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["debian:stable", "ubuntu:24.04", "fedora:latest", "almalinux:9", "alpine:latest"]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release
+          path: dist
+      - env:
+          VERSION: ${{ needs.check.outputs.version }}
+          IMAGE: ${{ matrix.image }}
+        run: >-
+          docker run --rm -e VERSION
+          -v "$PWD/dist:/dist:ro" -v "$PWD/packaging:/packaging:ro"
+          "$IMAGE" sh /packaging/install-test.sh

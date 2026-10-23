@@ -31,6 +31,7 @@ jobs:
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
+      - run: shellcheck packaging/*.sh
       - run: cargo clippy --workspace --all-targets
       - run: cargo test --workspace
       # End to end: the static Linux servers, a client embedding them, then
@@ -52,17 +53,47 @@ jobs:
       # for a request from inside a container.
       - run: sudo modprobe -a nft_chain_nat nft_redir nft_fib_inet || true
       - run: scripts/e2e-nft.sh
-      # No macOS runner: they cost ten times the minutes. Checking (not
-      # linking) needs no macOS SDK, so this still catches code that only
-      # compiles on Linux. macOS tests run on the developer's Mac.
+      # No macOS runner here (release-build below has one, only when the
+      # release build changes). Checking (not linking) needs no macOS SDK,
+      # so this still catches code that only compiles on Linux. macOS tests
+      # run on the developer's Mac.
       - run: rustup target add aarch64-apple-darwin
       - run: cargo clippy --workspace --all-targets --target aarch64-apple-darwin
+
+  release-files:
+    # Whether this pull request touches the release build: release-build
+    # runs only then, as it needs macOS and arm64 runners.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: diff
+        run: |
+          set -euo pipefail
+          # HEAD is the merge commit; its first parent is the base branch.
+          git diff --name-only HEAD^1 HEAD | tee changed.txt
+          if grep -qE '^(\.github/workflows/(build-release|release)\.yml|packaging/|xtask/|crates/client/build\.rs|Cargo\.(toml|lock)|rust-toolchain\.toml|CHANGELOG\.md)' changed.txt; then
+            echo "changed=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >>"$GITHUB_OUTPUT"
+          fi
+
+  release-build:
+    # Every release file, built and installed as a tag would, without
+    # publishing.
+    needs: release-files
+    if: needs.release-files.outputs.changed == 'true'
+    uses: ./.github/workflows/build-release.yml
 
   ci-required:
     # The one job everything else hangs off, and the check branch protection
     # requires: GitHub auto-merge waits for it. A skipped job reports
     # success, so the gate checks each result itself.
-    needs: [linux]
+    needs: [linux, release-files, release-build]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -70,4 +101,12 @@ jobs:
         run: |
           set -euo pipefail
           echo "linux=${{ needs.linux.result }}"
+          echo "release-files=${{ needs.release-files.result }}"
+          echo "release-build=${{ needs.release-build.result }}"
           [ "${{ needs.linux.result }}" = "success" ] || exit 1
+          # release-files runs for pull requests only; release-build only
+          # when it says so.
+          case "${{ needs.release-files.result }}/${{ needs.release-build.result }}" in
+            success/success | success/skipped | skipped/skipped) ;;
+            *) exit 1 ;;
+          esac
