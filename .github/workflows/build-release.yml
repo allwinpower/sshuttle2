@@ -279,3 +279,28 @@ jobs:
           brew install --formula local/test/sshuttle2
           brew test local/test/sshuttle2
           sshuttle2 --version
+
+  # The AUR package (sshuttle2-bin), built with makepkg and installed on Arch
+  # Linux from this build's files. Final versions only: a PKGBUILD's pkgver
+  # cannot hold a prerelease.
+  aur-test:
+    needs: [check, assemble]
+    if: ${{ !contains(needs.check.outputs.version, '-') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release
+          path: dist
+      - env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          pkg=$RUNNER_TEMP/aur
+          mkdir -p "$pkg"
+          packaging/aur/pkgbuild.sh "$VERSION" dist/SHA256SUMS >"$pkg/PKGBUILD"
+          # Not published yet: makepkg takes the tarball from here.
+          cp "dist/sshuttle2-$VERSION-linux-amd64.tar.gz" "$pkg/"
+          docker run --rm -e VERSION -v "$pkg:/pkg" -v "$PWD:/src:ro" archlinux:latest \
+            bash /src/packaging/aur/check.sh /pkg

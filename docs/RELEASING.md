@@ -25,6 +25,14 @@ A version tag publishes a release. [release.yml](../.github/workflows/release.ym
 
 **Homebrew token:** the release job pushes the formula with the `HOMEBREW_TAP_TOKEN` secret. That is a fine-grained token with contents read and write on `allwinpower/homebrew-tap` only. When it expires, make a new one and run `pbpaste | gh secret set HOMEBREW_TAP_TOKEN -R allwinpower/sshuttle2`. Then rerun the failed `homebrew` job.
 
+**AUR (Arch Linux):** after a final release, run:
+
+```bash
+gh workflow run aur.yml -f version=0.2.0
+```
+
+It builds the `sshuttle2-bin` package from the published release on Arch Linux, installs and checks it, and pushes it to the AUR with the `AUR_SSH_KEY` secret. That secret is the private half of an SSH key whose public half is in the AUR account. The release build's `aur-test` job already builds the package before every release, so the workflow should not fail on a good release.
+
 **If publishing fails halfway:** rerun the failed jobs. The publish step finds its draft and fills it in. It never changes a published release. To fix a bad release, publish a new version.
 
 **Try it without a tag:** Actions → Release build → Run workflow, on any branch. It builds and tests everything and publishes nothing. Pull requests that touch the release build run it as well.
