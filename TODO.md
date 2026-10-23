@@ -35,3 +35,6 @@
 
 - [ ] **Try mimalloc in the server too, after 0.1.0.** The uploaded server is also built with musl, so mimalloc could speed it up as well, as it did the Linux client (README, "Linux client and mimalloc"). It would add about 10% to the 1.3 MB that is uploaded on first use, so it is a separate decision.
   To measure, run `scripts/alloc-bench.sh` once per server build, with the same client.
+
+- [ ] **apt and dnf repositories, when users ask for them.** The `.deb` and `.rpm` from a release install with `sudo apt install ./file.deb` or `sudo dnf install ./file.rpm`, but they never update, because apt and dnf do not know where they came from. A package repository fixes that: users add it once, then `sudo apt install sshuttle2`, and `apt upgrade` or `dnf upgrade` brings each new release.
+  The cost is a GPG signing key to keep safe and renew, hosting (for example a separate repo served by GitHub Pages), and a publish step in `release.yml` on every release. Build the APT repository with [aptly](https://www.aptly.info/doc/aptly/publish/) and the RPM one with `createrepo_c`, and sign both. That is about 1–2 days to set up, then about 1–2 hours a month. Start when about 5 users ask. Until then, Homebrew on Linux (and the AUR, once it takes new accounts) gives automatic updates.
