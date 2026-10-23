@@ -11,3 +11,4 @@ The first release.
 - **SOCKS5 proxy** (CONNECT and UDP ASSOCIATE), which needs no root.
 - The server is a small static Linux program (x86_64, arm64), uploaded over SSH on first use.
 - Prebuilt clients for macOS (Apple Silicon, Intel) and Linux (x86_64, arm64), as `.tar.gz`, `.deb` and `.rpm`, with an install script.
+- Homebrew on macOS and Linux: `brew install allwinpower/tap/sshuttle2`.

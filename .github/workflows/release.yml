@@ -1,8 +1,9 @@
 name: Release
 
 # A version tag (v0.2.0, or v0.2.0-rc.1 for a prerelease) builds and tests
-# every release file with build-release.yml, then publishes the GitHub
-# Release. docs/RELEASING.md has the steps.
+# every release file with build-release.yml, publishes the GitHub Release,
+# and for a final release updates the Homebrew formula. docs/RELEASING.md
+# has the steps.
 on:
   push:
     tags: ["v*"]
@@ -56,3 +57,37 @@ jobs:
               --title "sshuttle2 $VERSION" --notes-file notes.md dist/*
           fi
           gh release edit "$TAG" --draft=false
+
+  # Final releases only: `brew install` should never get a prerelease.
+  homebrew:
+    needs: [build, publish]
+    if: ${{ !contains(needs.build.outputs.version, '-') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release
+          path: dist
+      - name: Update the formula in allwinpower/homebrew-tap
+        env:
+          # A fine-grained token: contents read and write, on the tap only.
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          packaging/homebrew/formula.sh "$VERSION" dist/SHA256SUMS >"$RUNNER_TEMP/sshuttle2.rb"
+          tap=$RUNNER_TEMP/tap
+          git clone --depth 1 "https://x-access-token:$TAP_TOKEN@github.com/allwinpower/homebrew-tap.git" "$tap"
+          mkdir -p "$tap/Formula"
+          cp "$RUNNER_TEMP/sshuttle2.rb" "$tap/Formula/sshuttle2.rb"
+          cd "$tap"
+          git add Formula/sshuttle2.rb
+          if git diff --cached --quiet; then
+            echo "The tap already has sshuttle2 $VERSION"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "sshuttle2 $VERSION"
+          git push origin HEAD:main

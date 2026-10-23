@@ -1,5 +1,11 @@
 ## Install
 
+**macOS or Linux, with Homebrew** (final releases only, not prereleases):
+
+```bash
+brew install allwinpower/tap/sshuttle2
+```
+
 **Any Linux or macOS**, with the install script. It checks the download against `SHA256SUMS` and puts `sshuttle2` in `/usr/local/bin` (`--user` for `~/.local/bin`):
 
 ```bash
