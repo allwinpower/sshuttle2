@@ -75,9 +75,15 @@ Addresses use SOCKS5's layout, then a `u16` port:
 **Credit.**
 - Each TCP channel starts with 256 KiB of send credit in each direction.
 - A sender may have at most its credit in flight.
-- The receiver grants more with WINDOW once it has delivered half its window to the local socket.
+- The receiver grants more with WINDOW once it has delivered a quarter of its window to the local socket.
 
-**Autotuning.** If a window fills up in less than one measured RTT, the receiver doubles it: it grants the extra credit and keeps the bigger window. The ceiling is 16 MiB per channel, and a cap on the sum of all windows bounds total buffering.
+**Autotuning.** The receiver sizes each window from how fast it drains, against the smallest RTT seen (PING/PONG; every 250 ms while DATA arrives, else every second):
+- A quarter drains in under half an RTT: the window is the limit, so it doubles (the receiver grants the extra credit). The ceiling is 16 MiB per channel, and a cap on the sum of all windows bounds total buffering.
+- A quarter takes over two RTTs: the window shrinks by a quarter, not below its starting size.
+- **Brake.** The whole window takes over four RTTs to drain while the standing RTT is over two: the tunnel is slower than the windows, and the data only queues. The receiver withholds grants until the window drains in about 2.5 RTTs, down to 8 KiB. Here an RTT counts as at least 100 ms, so jitter on a fast path never brakes. While that standing RTT lasts, no window grows. A braked window grows back toward its starting size, by half at a time, while it drains in under two RTTs.
+- The standing RTT is the smallest sample of the last second, or how long the oldest PING has gone unanswered, once that is over a second (behind a queue of seconds, no answer arrives at all). Drain times use the pace of about the last window, since a single quarter can arrive in one burst.
+
+A receiver shrinks a window by granting less than it delivered, so the sender needs no part in it.
 
 **Overruns.** A peer that sends past its credit gets that channel reset. The reader therefore never waits on a slow consumer, and one stalled channel never blocks the others.
 
