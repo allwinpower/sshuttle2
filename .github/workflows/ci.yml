@@ -31,7 +31,11 @@ jobs:
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
-      - run: shellcheck packaging/*.sh packaging/*/*.sh
+      - run: shellcheck packaging/*.sh packaging/*/*.sh scripts/speedtest/*.sh
+      # The speed test report, against a saved run.
+      - run: |
+          python3 scripts/speedtest/report.py scripts/speedtest/testdata/results.jsonl \
+            --layout scripts/speedtest/testdata/layout.json | diff scripts/speedtest/testdata/results.md -
       - run: cargo clippy --workspace --all-targets
       - run: cargo test --workspace
       # End to end: the static Linux servers, a client embedding them, then
@@ -53,6 +57,9 @@ jobs:
       # for a request from inside a container.
       - run: sudo modprobe -a nft_chain_nat nft_redir nft_fib_inet || true
       - run: scripts/e2e-nft.sh
+      # The speed test's client side, every mode, with a stand-in for
+      # Ookla's CLI (the real test: .github/workflows/speedtest.yml).
+      - run: scripts/speedtest/dry-run.sh
       # No macOS runner here (release-build below has one, only when the
       # release build changes). Checking (not linking) needs no macOS SDK,
       # so this still catches code that only compiles on Linux. macOS tests

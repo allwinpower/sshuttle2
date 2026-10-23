@@ -17,8 +17,8 @@
     | first byte under load | 1713 ms | 296 ms |
 
   To do:
-  1. In `scripts/mac-speed-check.sh`: take the median of 5 page waits and of 2 or more downloads. Download a file served by the server itself, as `scripts/bench.sh` does, next to the internet download.
-  2. Run it on a quiet network against two fresh servers (2 vCPU / 4 GB and 1 vCPU / 2 GB): `scripts/mac-speed-check.sh HOST1 HOST2`. Also run `scripts/bench.sh HOST` for the `ssh -D` ceiling.
+  1. Run the [Speed test](docs/SPEEDTEST.md) workflow: fresh servers of both sizes, near and far, medians of 3 rounds, with CPU and memory. Pin `OOKLA_SHA256` in `.github/workflows/speedtest.yml` from the first run's log.
+  2. Optional, for the Wi-Fi view: in `scripts/mac-speed-check.sh`, take the median of 5 page waits and of 2 or more downloads, and run it on a quiet network.
   3. Update the Benchmarks table in `README.md`, "Vitals after surgery" in `STORY.md`, and the table, charts and numbers in `docs/story/index.html`.
   4. Never commit server addresses. Name the servers by size only.
 

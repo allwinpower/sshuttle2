@@ -1,0 +1,148 @@
+name: Speed test
+
+# sshuttle against sshuttle2 on fresh LightNode VMs, created for the run and
+# deleted after it. Only the repository owner can start it, and every run
+# waits for the owner's approval (environment "speedtest"). The LightNode
+# token is an environment secret, given only to the steps that create and
+# delete VMs. docs/SPEEDTEST.md has the setup and the whole security model.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "bench: the speed test. list: LightNode regions, packages and images (creates nothing)"
+        type: choice
+        options: [bench, list]
+        default: bench
+      region_a:
+        description: "Region of the client and the near servers (a code from a list run)"
+        type: string
+        default: ""
+      region_b:
+        description: "Region of the far servers; empty for none"
+        type: string
+        default: ""
+      rounds:
+        description: "Rounds per server (the report shows medians)"
+        type: string
+        default: "3"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: speedtest
+  cancel-in-progress: false
+
+env:
+  SSHUTTLE_VERSION: "2.0.0"
+  OOKLA_VERSION: "1.2.0"
+  # Ookla publishes no checksum. setup-vm.sh prints it; pin it here after
+  # the first run, and later runs check it.
+  OOKLA_SHA256: ""
+  IMAGE: "Ubuntu 24.04"
+
+jobs:
+  # The static Linux client of this commit. No environment, so no secret:
+  # third-party actions and build scripts run here, never next to the token.
+  build:
+    if: inputs.action == 'bench' && github.actor == 'allwinpower' && github.triggering_actor == 'allwinpower'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          use-cache: false
+      - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2
+        with:
+          tool: cargo-zigbuild
+      - run: cargo xtask servers
+      - run: cargo xtask client x86_64-unknown-linux-musl
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sshuttle2-linux
+          path: target/x86_64-unknown-linux-musl/release/sshuttle2
+          if-no-files-found: error
+
+  # Everything with the token, in one job: each job in the environment asks
+  # for its own approval. It does not wait for build, so the approval comes
+  # right after "Run workflow", and the VMs start while build compiles.
+  bench:
+    if: github.actor == 'allwinpower' && github.triggering_actor == 'allwinpower'
+    runs-on: ubuntu-latest
+    environment: speedtest
+    timeout-minutes: 200
+    permissions:
+      contents: read
+      actions: read # the build job's artifact, while this job runs
+    env:
+      ACTION: ${{ inputs.action }}
+      REGION_A: ${{ inputs.region_a }}
+      REGION_B: ${{ inputs.region_b }}
+      ROUNDS: ${{ inputs.rounds }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: List regions, packages and images
+        if: inputs.action == 'list'
+        env:
+          LIGHTNODE_TOKEN: ${{ secrets.LIGHTNODE_TOKEN }}
+        run: scripts/speedtest/lightnode.sh list "$REGION_A" "$REGION_B"
+
+      - name: Prepare
+        if: inputs.action == 'bench'
+        run: |
+          set -euo pipefail
+          if [ -z "$REGION_A" ]; then
+            echo "::error::region_a is empty. Start a 'list' run to see the region codes."
+            exit 1
+          fi
+          sudo apt-get install -y -q sshpass >/dev/null
+          scripts/speedtest/runner.sh init
+
+      - name: Create the VMs
+        if: inputs.action == 'bench'
+        env:
+          LIGHTNODE_TOKEN: ${{ secrets.LIGHTNODE_TOKEN }}
+        run: scripts/speedtest/runner.sh create "$REGION_A" "$REGION_B"
+
+      - name: Wait for the sshuttle2 build
+        if: inputs.action == 'bench'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/speedtest/runner.sh fetch-build sshuttle2-linux "$RUNNER_TEMP/bin"
+
+      - name: Set up the VMs
+        if: inputs.action == 'bench'
+        timeout-minutes: 30
+        run: scripts/speedtest/runner.sh setup "$RUNNER_TEMP/bin/sshuttle2"
+
+      - name: Speed test
+        if: inputs.action == 'bench'
+        # A step that times out still lets the steps below delete the VMs.
+        timeout-minutes: 150
+        run: scripts/speedtest/runner.sh run "$ROUNDS"
+
+      - name: Report
+        if: always() && inputs.action == 'bench'
+        run: |
+          set -euo pipefail
+          scripts/speedtest/runner.sh collect results
+          if [ -f results/results.md ]; then cat results/results.md >>"$GITHUB_STEP_SUMMARY"; fi
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always() && inputs.action == 'bench'
+        with:
+          name: speedtest-${{ github.run_id }}
+          path: results/
+          if-no-files-found: ignore
+
+      - name: Delete the VMs
+        if: always() && inputs.action == 'bench'
+        env:
+          LIGHTNODE_TOKEN: ${{ secrets.LIGHTNODE_TOKEN }}
+        run: scripts/speedtest/runner.sh cleanup "$REGION_A" "$REGION_B"

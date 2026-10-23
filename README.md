@@ -30,6 +30,8 @@ These are single samples on a shared Wi-Fi. A second run that evening, with the 
 
 Reproduce on a Mac: `scripts/mac-speed-check.sh [user@]host...`. Measure a server in SOCKS5 mode, against OpenSSH's own `ssh -D`: `scripts/bench.sh [user@]host`.
 
+Fresh numbers on rented servers, with server and client CPU and memory: the [Speed test](docs/SPEEDTEST.md) workflow (the owner starts it).
+
 ## Status
 
 | Mode | Platform | Carries | Tested |
