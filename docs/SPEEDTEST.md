@@ -23,7 +23,7 @@ For each server, every mode runs `ROUNDS` times (default 3), in a different orde
   - client: the tunnel client, its helpers and its ssh.
   - CPU is the average in % of one core, with the busiest second; memory is resident memory, idle and peak.
 
-The job summary shows the tables. The artifact `speedtest-RUN_ID` holds `results.md`, `results.json` (medians and every error) and `results.jsonl` (every single measurement).
+The latest published results: [speed-results.md](speed-results.md). The job summary shows the tables. The artifact `speedtest-RUN_ID` holds `results.md`, `results.json` (medians and every error) and `results.jsonl` (every single measurement).
 
 ## Setup, once
 

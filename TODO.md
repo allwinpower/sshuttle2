@@ -16,13 +16,10 @@
     | 4 at once | 30.8 Mbit/s | 37.6 Mbit/s |
     | first byte under load | 1713 ms | 296 ms |
 
-  To do:
-  1. Run the [Speed test](docs/SPEEDTEST.md) workflow: fresh servers of both sizes, near and far, medians of 3 rounds, with CPU and memory.
-  2. Optional, for the Wi-Fi view: in `scripts/mac-speed-check.sh`, take the median of 5 page waits and of 2 or more downloads, and run it on a quiet network.
-  3. Update the Benchmarks table in `README.md`, "Vitals after surgery" in `STORY.md`, and the table, charts and numbers in `docs/story/index.html`.
-  4. Never commit server addresses. Name the servers by size only.
+  Done on rented servers: [docs/speed-results.md](docs/speed-results.md), from the [Speed test](docs/SPEEDTEST.md) workflow, linked from the README and the story. Still open, for the Wi-Fi view only: in `scripts/mac-speed-check.sh`, take the median of 5 page waits and of 2 or more downloads, and run it on a quiet network. Never commit server addresses; name the servers by size only.
 
 - [ ] **One download is slower than plain SSH.** On the same path, a single download got 22.9 Mbit/s through sshuttle2 and 37.9 Mbit/s through `ssh -D` (see above), while 4 at once got more than `ssh -D`. Find what holds one lane back, for example a window that stops growing too early, and fix it without losing the low page wait under load.
+  The Speed test shows it far worse at a distance ([docs/speed-results.md](docs/speed-results.md)): with the server 88 ms away, sshuttle2 got 1.8–2.6 Mbit/s and Ookla stalled in every run, while the same path does 100 Mbit/s without a tunnel (sshuttle: 1.3–1.7 Mbit/s). In one earlier single round on that path, sshuttle2 nft downloaded at 93 Mbit/s but uploaded at 3.3 Mbit/s, with 2.2 s of ping during the upload. A test for a fix: the far rows of the Speed test, 3 rounds.
 
 
 - [ ] **Try mimalloc in the server too, after 0.1.0.** The uploaded server is also built with musl, so mimalloc could speed it up as well, as it did the Linux client (README, "Linux client and mimalloc"). It would add about 10% to the 1.3 MB that is uploaded on first use, so it is a separate decision.
