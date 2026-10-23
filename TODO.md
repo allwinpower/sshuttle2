@@ -23,3 +23,7 @@
   4. Never commit server addresses. Name the servers by size only.
 
 - [ ] **One download is slower than plain SSH.** On the same path, a single download got 22.9 Mbit/s through sshuttle2 and 37.9 Mbit/s through `ssh -D` (see above), while 4 at once got more than `ssh -D`. Find what holds one lane back, for example a window that stops growing too early, and fix it without losing the low page wait under load.
+
+
+- [ ] **Try mimalloc in the server too, after 0.1.0.** The uploaded server is also built with musl, so mimalloc could speed it up as well, as it did the Linux client (README, "Linux client and mimalloc"). It would add about 10% to the 1.3 MB that is uploaded on first use, so it is a separate decision.
+  To measure, run `scripts/alloc-bench.sh` once per server build, with the same client.

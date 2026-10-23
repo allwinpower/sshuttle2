@@ -12,3 +12,4 @@ The first release.
 - The server is a small static Linux program (x86_64, arm64), uploaded over SSH on first use.
 - Prebuilt clients for macOS (Apple Silicon, Intel) and Linux (x86_64, arm64), as `.tar.gz`, `.deb` and `.rpm`, with an install script.
 - Homebrew on macOS and Linux: `brew install allwinpower/tap/sshuttle2`.
+- The Linux client uses mimalloc instead of musl's allocator. When the CPU is the limit, it moves 17–25% more data at half the CPU. The README's Benchmarks section has the numbers.
