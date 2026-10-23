@@ -51,6 +51,26 @@ Tests: `crates/client/src/tunmode.rs` (`half_close_*`,
 TCP peer; `scripts/e2e-tun.sh` runs a half-close echo through a real tun
 device in Docker.
 
+## Receive window (`src/stream/tcb.rs`, `src/stream/tcp.rs`)
+
+The stack acknowledged an app's data with a window that never closed. In-order
+data left the receive buffer at once for an unbounded queue to the reader, so
+only out-of-order data counted against `read_buffer_size`, and the advertised
+window was never below the MTU. An app uploading through a slow reader (a
+tunnel) had everything "sent" at once: through a 40 Mbit/s tunnel an 8-stream
+upload was written at 3 Gbit/s, and the client grew to 5.9 GB.
+
+Now:
+
+- Bytes queued for the reader and not yet read count against the window
+  (`Tcb::unread`), and the window may be 0. A window under one segment is
+  advertised as 0 (silly window avoidance).
+- When the reader frees two segments' worth while the window last advertised
+  was under half the maximum, the stack sends a window update at once, rather
+  than leaving the app to its zero-window probes, which back off to minutes.
+
+Test: `crates/client/src/tunmode.rs` (`window_closes_until_the_upper_layer_reads`).
+
 ## Known gaps, not patched
 
 - The SYN-ACK carries no window scale option, so windows stay under 64 KiB.

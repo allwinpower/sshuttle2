@@ -2,6 +2,10 @@
 
 What changed in each release of sshuttle2. A release's section here becomes its GitHub Release notes ([docs/RELEASING.md](docs/RELEASING.md)).
 
+## [Unreleased]
+
+- **tun mode: uploads wait for the tunnel.** The built-in TCP stack acknowledged every byte an app sent at once and queued it unread. So an upload through a slower tunnel looked sent long before it was, Ookla's speedtest gave up waiting for the server's answer (it failed in the upload with the server far away), and the client could grow by gigabytes. Now the receive window closes once 256 KiB of a connection wait unread, and reopens as the tunnel takes them.
+
 ## [0.1.1] - 2026-10-23
 
 - **Slow or distant servers no longer stall the tunnel.** Each connection kept at least 256 KiB in flight, so when the path was much slower than that (as across an ocean, where Ookla's speedtest stalled in every run), several downloads together queued seconds of data in front of every other connection. A connection's window now also shrinks below its starting size while it only builds a queue, and grows back when the path gets faster.

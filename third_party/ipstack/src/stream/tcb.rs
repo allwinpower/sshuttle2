@@ -65,6 +65,12 @@ pub(crate) struct Tcb {
     // sshuttle2 patch: the upper layer has shut down its write side. Our
     // FIN goes out once everything it wrote has been acknowledged.
     fin_requested: bool,
+    // sshuttle2 patch: bytes handed to the reader's queue that the upper
+    // layer has not read yet, and the window we last advertised. Unread
+    // bytes count against the receive window, so an app cannot send faster
+    // than the upper layer reads.
+    unread: usize,
+    advertised: std::cell::Cell<u16>,
 }
 
 impl Tcb {
@@ -98,6 +104,8 @@ impl Tcb {
             rto,
             max_retransmit_count,
             fin_requested: false,
+            unread: 0,
+            advertised: std::cell::Cell::new(0),
         }
     }
 
@@ -138,7 +146,32 @@ impl Tcb {
         self.unordered_packets.insert(seq, buf);
     }
     pub(super) fn get_available_read_buffer_size(&self) -> usize {
-        self.read_buffer_size.saturating_sub(self.get_unordered_packets_total_len())
+        // sshuttle2 patch: what the upper layer has not read yet counts too.
+        // Before, in-order data left this buffer at once for an unbounded
+        // queue, so the window never closed: an app uploading through a slow
+        // upper layer had gigabytes "sent" and queued here.
+        self.read_buffer_size
+            .saturating_sub(self.get_unordered_packets_total_len() + self.unread)
+    }
+    pub(super) fn add_unread(&mut self, n: usize) {
+        self.unread += n;
+    }
+    pub(super) fn sub_unread(&mut self, n: usize) {
+        self.unread = self.unread.saturating_sub(n);
+    }
+    fn mss(&self) -> usize {
+        usize::from(self.mtu).saturating_sub(40).max(1)
+    }
+    pub(super) fn note_advertised(&self, window: u16) {
+        self.advertised.set(window);
+    }
+    /// sshuttle2 patch: the app stops sending when the window closes, so
+    /// tell it once reading has freed two segments' worth (while the window
+    /// we last advertised was under half the maximum; above that, the ACKs
+    /// for its data carry the window anyway).
+    pub(super) fn window_update_due(&self) -> bool {
+        let (now, last) = (usize::from(self.get_recv_window()), usize::from(self.advertised.get()));
+        last < usize::from(u16::MAX / 2) && now >= last + 2 * self.mss()
     }
     #[inline]
     pub(crate) fn get_unordered_packets_total_len(&self) -> usize {
@@ -211,7 +244,13 @@ impl Tcb {
         self.send_window
     }
     pub(super) fn get_recv_window(&self) -> u16 {
-        self.get_available_read_buffer_size().try_into().unwrap_or(u16::MAX)
+        // sshuttle2 patch: no window smaller than a segment (silly window
+        // avoidance); it is 0 until a whole segment fits.
+        let available = self.get_available_read_buffer_size();
+        if available < self.mss() {
+            return 0;
+        }
+        available.try_into().unwrap_or(u16::MAX)
     }
     // #[inline(always)]
     // pub(super) fn buffer_size(&self, payload_len: u16) -> u16 {

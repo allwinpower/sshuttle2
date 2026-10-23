@@ -400,13 +400,17 @@ pub fn test_stack(rx: mpsc::Receiver<Vec<u8>>, tx: mpsc::Sender<Vec<u8>>, mtu: u
     )
 }
 
+const READ_BUFFER: usize = 256 * 1024;
+
 fn stack_config(mtu: u16) -> IpStackConfig {
     let mut cfg = IpStackConfig::default();
     cfg.mtu_unchecked(mtu);
     let mut tcp = TcpConfig::default();
     // Defaults (16 KiB) would cap each connection far below the link.
     tcp.max_unacked_bytes = 1 << 20;
-    tcp.read_buffer_size = 1 << 20;
+    // What an app may send ahead of the tunnel. The window closes once this
+    // much waits unread (third_party/ipstack/PATCHES.md, "Receive window").
+    tcp.read_buffer_size = READ_BUFFER;
     // An idle timeout: long-lived quiet connections (ssh, websockets) must
     // survive, as they would through a NAT.
     tcp.timeout = Duration::from_secs(2 * 3600);
@@ -575,6 +579,7 @@ mod tests {
 
     struct Segment {
         seq: u32,
+        window: u16,
         syn: bool,
         fin: bool,
         rst: bool,
@@ -606,6 +611,7 @@ mod tests {
             };
             Segment {
                 seq: t.sequence_number(),
+                window: t.window_size(),
                 syn: t.syn(),
                 fin: t.fin(),
                 rst: t.rst(),
@@ -743,6 +749,46 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn half_close_jumbo_segments() {
         echo_after_half_close(9000, 300_000, false, false).await;
+    }
+
+    /// An app that uploads faster than the upper layer reads must be held back
+    /// by the window, and told when there is room again. Before, the stack
+    /// acknowledged everything with a full window and queued it unread: an
+    /// upload through a slow tunnel grew the client by gigabytes.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn window_closes_until_the_upper_layer_reads() {
+        let (mut app, _stack, mut s) = connect(1500).await;
+        let mss = 1460;
+        let chunk = vec![7u8; mss];
+        // Send as a kernel would: only within the window.
+        let mut window = usize::from(u16::MAX);
+        let mut sent = 0;
+        while window >= mss {
+            app.send(false, false, &chunk).await;
+            sent += mss;
+            assert!(sent <= 2 * READ_BUFFER, "the window never closed");
+            let ack = app.recv().await;
+            assert!(!ack.rst);
+            window = usize::from(ack.window);
+        }
+        assert!(
+            sent <= READ_BUFFER + mss,
+            "{sent} bytes accepted with a {READ_BUFFER}-byte buffer"
+        );
+        assert_eq!(window, 0, "a window under one segment should be 0");
+        // Nothing read, so nothing more is announced.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(app.try_recv().is_none(), "the stack spoke without reading");
+        // Reading makes room, and the stack says so by itself.
+        let mut buf = vec![0u8; 64 * 1024];
+        s.read_exact(&mut buf).await.unwrap();
+        let update = app.recv().await;
+        assert!(
+            usize::from(update.window) >= 2 * mss,
+            "window update too small: {}",
+            update.window
+        );
+        assert_eq!(update.seq, app.ack, "a window update carries no data");
     }
 
     /// The stack no longer sends a FIN of its own after the app's, so an upper
