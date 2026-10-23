@@ -71,6 +71,10 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          # Release builds start clean; and saving the cache looks up zig's
+          # version list online after the build, which can fail on its own.
+          use-cache: false
       - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2
         with:
           tool: cargo-zigbuild
@@ -83,6 +87,7 @@ jobs:
 
   # Static (musl) clients, each built on its own CPU so it can be run.
   linux:
+    name: linux (${{ matrix.nfpm }})
     needs: [check, servers]
     strategy:
       matrix:
@@ -107,6 +112,10 @@ jobs:
           fi
           rustup show active-toolchain || rustup toolchain install
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          # Release builds start clean; and saving the cache looks up zig's
+          # version list online after the build, which can fail on its own.
+          use-cache: false
       - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2
         with:
           tool: cargo-zigbuild
