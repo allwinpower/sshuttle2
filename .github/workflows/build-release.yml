@@ -266,7 +266,15 @@ jobs:
           packaging/homebrew/formula.sh "$VERSION" "$files/SHA256SUMS" >"$formula"
           cat "$formula"
           brew audit --strict --formula local/test/sshuttle2
-          # ...then install it from this build's files.
+          # The formula has no version line: Homebrew reads it from the
+          # GitHub release URLs, and must read exactly this one.
+          read_version=$(brew info --json=v2 local/test/sshuttle2 | jq -r '.formulae[0].versions.stable')
+          if [ "$read_version" != "$VERSION" ]; then
+            echo "::error::Homebrew reads version $read_version from the release URLs, not $VERSION"
+            exit 1
+          fi
+          # ...then install it from this build's files. A file:// URL tells
+          # Homebrew no version, so formula.sh states it there.
           packaging/homebrew/formula.sh "$VERSION" "$files/SHA256SUMS" "file://$files" >"$formula"
           brew install --formula local/test/sshuttle2
           brew test local/test/sshuttle2
