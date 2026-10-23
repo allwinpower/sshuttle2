@@ -99,7 +99,13 @@ sudo apt install ./sshuttle2_*_amd64.deb
 sudo dnf install ./sshuttle2-*.x86_64.rpm
 ```
 
-These packages do not update themselves: install the next release's file the same way. With Homebrew, `brew upgrade` does it.
+**Arch Linux:** download the `.pkg.tar.zst` for your CPU (`x86_64` or `aarch64`) from the [latest release](https://github.com/allwinpower/sshuttle2/releases/latest), then:
+
+```bash
+sudo pacman -U ./sshuttle2-*-x86_64.pkg.tar.zst
+```
+
+These packages do not update themselves: install the next release's file the same way. With Homebrew, `brew upgrade` does it. An AUR package (`sshuttle2-bin`) will follow.
 
 **By hand:** every [release](https://github.com/allwinpower/sshuttle2/releases) has a `.tar.gz` for each system (`macos` or `linux`, `amd64` or `arm64`) and a `SHA256SUMS` file. The Linux binaries are static and run on any distribution. The macOS binaries are not notarized, so after a browser download, run `xattr -d com.apple.quarantine sshuttle2` once.
 
