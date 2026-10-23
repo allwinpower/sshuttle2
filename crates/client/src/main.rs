@@ -31,6 +31,11 @@ use tracing::{debug, error, info, warn};
 
 use crate::subnet::{Cidr, Route};
 
+// The static Linux build uses mimalloc instead of musl's slow allocator.
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[derive(Parser, Debug)]
 #[command(
     name = "sshuttle2",

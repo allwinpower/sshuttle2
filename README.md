@@ -30,6 +30,24 @@ These are single samples on a shared Wi-Fi. A second run that evening, with the 
 
 Reproduce on a Mac: `scripts/mac-speed-check.sh [user@]host...`. Measure a server in SOCKS5 mode, against OpenSSH's own `ssh -D`: `scripts/bench.sh [user@]host`.
 
+### Linux client and mimalloc
+
+The Linux client is one static binary, built with musl, so it runs on every distribution. But musl's memory allocator is slow, and the tunnel allocates memory for the data it moves. So the Linux client uses [mimalloc](https://github.com/microsoft/mimalloc) instead. The macOS client keeps the system allocator.
+
+Measured on a cloud server with 1 vCPU and 2 GB, 23 October 2026. All three clients were built from the same source. Client and server shared that one core, with `-r local` (no SSH, no network), so the CPU was the limit. That shows what each client build costs. Medians of 3 runs, each downloading a 300 MB file once on its own and then 4 times at once.
+
+| Linux client | 1 download | 4 at once | Client CPU for 1.5 GB |
+|---|---:|---:|---:|
+| musl, its own allocator | 1514 Mbit/s | 1511 Mbit/s | 2.6 s |
+| **musl + mimalloc** | **1900 Mbit/s** | **1773 Mbit/s** | **1.3 s** |
+| glibc, for comparison | 1712 Mbit/s | 1621 Mbit/s | 1.6 s |
+
+- mimalloc **halves the client's CPU** and moves 17–25% more data than musl's allocator. It also beats a glibc build.
+- At everyday speeds the difference is small. At 100 Mbit/s, musl's allocator costs about 2.2% of one core and mimalloc about 1.1%. It matters on fast links and small CPUs.
+- The cost is 128 KiB of binary size (5.7 MB in all).
+
+Reproduce on Linux, with Linux builds of the server and of each client: `scripts/alloc-bench.sh SERVER_BIN CLIENT_BIN...`.
+
 ## Status
 
 | Mode | Platform | Carries | Tested |

@@ -19,3 +19,8 @@ shlex = "1"
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+# musl's allocator is slow: on one CPU core the musl client moved 20-25%
+# less data than a glibc build and used 1.8 times the CPU.
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = "0.1"
