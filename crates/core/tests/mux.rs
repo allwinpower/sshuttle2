@@ -30,6 +30,7 @@ async fn serve(mut opens: tokio::sync::mpsc::UnboundedReceiver<Open>) {
                     };
                     match TcpStream::connect(sa).await {
                         Ok(mut s) => {
+                            s.set_nodelay(true).unwrap();
                             chan.tx.connect_ok().await.unwrap();
                             let (r, w) = s.split();
                             pump(chan, r, w).await;
@@ -90,6 +91,7 @@ async fn echo_server() -> SocketAddr {
     tokio::spawn(async move {
         loop {
             let (mut s, _) = l.accept().await.unwrap();
+            s.set_nodelay(true).unwrap();
             tokio::spawn(async move {
                 let (mut r, mut w) = s.split();
                 tokio::io::copy(&mut r, &mut w).await.unwrap();
@@ -275,4 +277,151 @@ async fn peer_eof_closes_mux() {
         .unwrap();
     assert!(!reason.is_empty());
     assert!(client.open_tcp(&Addr::Domain("x".into(), 1)).await.is_err());
+}
+
+/// One direction of an emulated network path: `delay` one way and at most
+/// `rate` bytes per second, behind a deep buffer (like ssh's and the
+/// kernel's, which queue whatever the windows let in). Data arrives in
+/// chunks of up to 32 KiB, as ssh delivers whole packets.
+async fn shaped<R, W>(mut rd: R, mut wr: W, rate: f64, delay: Duration)
+where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+    W: tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    use tokio::time::{Instant, sleep, sleep_until};
+    let buffer = Duration::from_secs(10);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(Instant, Vec<u8>)>();
+    tokio::spawn(async move {
+        while let Some((at, chunk)) = rx.recv().await {
+            sleep_until(at).await;
+            if wr.write_all(&chunk).await.is_err() {
+                return;
+            }
+        }
+    });
+    let mut wire_free = Instant::now();
+    let mut buf = vec![0u8; 32 * 1024];
+    loop {
+        let n = match rd.read(&mut buf).await {
+            Ok(0) | Err(_) => return,
+            Ok(n) => n,
+        };
+        let now = Instant::now();
+        wire_free = wire_free.max(now) + Duration::from_secs_f64(n as f64 / rate);
+        if tx.send((wire_free + delay, buf[..n].to_vec())).is_err() {
+            return;
+        }
+        if wire_free > now + buffer {
+            sleep(wire_free - now - buffer).await;
+        }
+    }
+}
+
+/// A client and a server mux joined by an emulated path.
+fn slow_pair(cfg: MuxConfig, rate: f64, delay: Duration) -> Mux {
+    let (c, c_link) = tokio::io::duplex(64 * 1024);
+    let (s, s_link) = tokio::io::duplex(64 * 1024);
+    let (cr, cw) = tokio::io::split(c);
+    let (sr, sw) = tokio::io::split(s);
+    let (c_link_r, c_link_w) = tokio::io::split(c_link);
+    let (s_link_r, s_link_w) = tokio::io::split(s_link);
+    tokio::spawn(shaped(c_link_r, s_link_w, rate, delay));
+    tokio::spawn(shaped(s_link_r, c_link_w, rate, delay));
+    let (client, _) = Mux::start(cr, cw, BytesMut::new(), Role::Client, cfg.clone());
+    let (_server, opens) = Mux::start(sr, sw, BytesMut::new(), Role::Server, cfg);
+    tokio::spawn(serve(opens));
+    client
+}
+
+/// A server that sends data to every connection until it closes.
+async fn source_server() -> SocketAddr {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let (mut s, _) = l.accept().await.unwrap();
+            tokio::spawn(async move {
+                let chunk = vec![7u8; 16 * 1024];
+                while s.write_all(&chunk).await.is_ok() {}
+            });
+        }
+    });
+    addr
+}
+
+/// Time for one byte to go through the echo server and back.
+async fn echo_time(mux: &Mux, echo: SocketAddr, samples: usize) -> Vec<Duration> {
+    let mut chan = mux.open_tcp(&Addr::Ip(echo)).await.unwrap();
+    chan.wait_connected().await.unwrap();
+    let mut times = Vec::new();
+    for _ in 0..samples {
+        let t = std::time::Instant::now();
+        chan.tx.send_data(Bytes::from_static(b"x")).await.unwrap();
+        chan.tx.consume_credit(1);
+        loop {
+            match chan.rx.recv().await {
+                Some(Inbound::Data(b)) => {
+                    chan.rx.consumed(b.len());
+                    break;
+                }
+                Some(Inbound::ConnectOk) => {}
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        times.push(t.elapsed());
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    times
+}
+
+/// Four downloads through a path far slower than their windows: the queue
+/// they leave in the tunnel must stay short, or every other channel (and
+/// every new connection) waits behind it. Without the brake each channel
+/// keeps its initial window queued: 4 x 64 KiB at 1 MB/s is about 260 ms.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn slow_path_keeps_queue_short() {
+    let cfg = MuxConfig {
+        initial_window: 64 * 1024,
+        max_window: 1024 * 1024,
+        brake_rtt: Duration::from_millis(20),
+        ping_interval: Duration::from_millis(100),
+        busy_ping_interval: Duration::from_millis(50),
+        ..MuxConfig::default()
+    };
+    let rate = 1_000_000.0;
+    let mux = slow_pair(cfg, rate, Duration::from_millis(10));
+    let source = source_server().await;
+    let echo = echo_server().await;
+    let idle = echo_time(&mux, echo, 3).await;
+    let received = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    for _ in 0..4 {
+        let mut chan = mux.open_tcp(&Addr::Ip(source)).await.unwrap();
+        let received = received.clone();
+        tokio::spawn(async move {
+            while let Some(m) = chan.rx.recv().await {
+                if let Inbound::Data(b) = m {
+                    received.fetch_add(b.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                    chan.rx.consumed(b.len());
+                }
+            }
+        });
+    }
+    // The initial windows drain first.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let before = received.load(std::sync::atomic::Ordering::Relaxed);
+    let t = std::time::Instant::now();
+    let mut loaded = echo_time(&mux, echo, 10).await;
+    let rate_seen = (received.load(std::sync::atomic::Ordering::Relaxed) - before) as f64
+        / t.elapsed().as_secs_f64();
+    loaded.sort();
+    let median = loaded[loaded.len() / 2];
+    assert!(
+        median < Duration::from_millis(150),
+        "echo under load took {median:?} (idle {:?}, all {loaded:?})",
+        idle[idle.len() - 1]
+    );
+    assert!(
+        rate_seen > rate * 0.8,
+        "the brake cost throughput: {rate_seen:.0} B/s of {rate:.0}"
+    );
 }

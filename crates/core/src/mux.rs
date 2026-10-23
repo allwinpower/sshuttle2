@@ -42,7 +42,15 @@ pub struct MuxConfig {
     pub data_queue: usize,
     /// Bytes of UDP payload a channel may have queued before datagrams drop.
     pub udp_buffer: u32,
+    /// Smallest window the brake shrinks a channel to.
+    pub min_window: u32,
+    /// The brake counts every round trip as at least this long, so delay
+    /// jitter on fast paths (Wi-Fi) never brakes a channel.
+    pub brake_rtt: Duration,
     pub ping_interval: Duration,
+    /// PING interval while this side receives DATA, so the RTT follows the
+    /// queue as it builds and drains.
+    pub busy_ping_interval: Duration,
 }
 
 impl Default for MuxConfig {
@@ -53,7 +61,10 @@ impl Default for MuxConfig {
             global_window_cap: 256 * 1024 * 1024,
             data_queue: 16,
             udp_buffer: 1024 * 1024,
+            min_window: 8 * 1024,
+            brake_rtt: Duration::from_millis(100),
             ping_interval: Duration::from_secs(1),
+            busy_ping_interval: Duration::from_millis(250),
         }
     }
 }
@@ -178,8 +189,12 @@ impl Inner {
         self.rtt.lock().unwrap().smoothed()
     }
 
-    fn min_rtt(&self) -> Duration {
-        self.rtt.lock().unwrap().min()
+    /// The smallest round trip seen, and the standing one (the smallest of
+    /// the last second's samples: a queue that stays, not jitter).
+    fn rtt_view(&self) -> (Duration, Duration) {
+        let now = self.start.elapsed().as_micros() as u64;
+        let rtt = self.rtt.lock().unwrap();
+        (rtt.min(), rtt.standing(now))
     }
 
     fn send_ctrl(&self, f: Frame) {
@@ -262,6 +277,8 @@ impl Inner {
                 window: recv_window,
                 consumed: 0,
                 last_grant: Instant::now(),
+                paced_bytes: 0.0,
+                paced_secs: 0.0,
             },
         })
     }
@@ -274,7 +291,9 @@ impl Inner {
                 let sent = frame::parse_u64(&f.payload)?;
                 let now = self.start.elapsed().as_micros() as u64;
                 let sample = now.saturating_sub(sent).max(1);
-                self.rtt.lock().unwrap().add(now, sample);
+                let mut rtt = self.rtt.lock().unwrap();
+                rtt.answered(sent);
+                rtt.add(now, sample);
             }
             Kind::Exit => bail!("peer said goodbye"),
             Kind::Hello => bail!("unexpected HELLO after handshake"),
@@ -403,13 +422,21 @@ struct RttFilter {
     min_cur_us: u64,
     min_prev_us: u64,
     epoch_start_us: u64,
+    /// The last few samples as (arrival, rtt), newest at `next - 1`.
+    recent: [(u64, u64); 8],
+    next: usize,
+    /// Stamps of PINGs not yet answered, oldest first.
+    waiting: std::collections::VecDeque<u64>,
 }
 
 impl RttFilter {
     const EPOCH_US: u64 = 30_000_000;
+    const STANDING_US: u64 = 1_000_000;
     const DEFAULT: Duration = Duration::from_millis(100);
 
     fn add(&mut self, now_us: u64, sample_us: u64) {
+        self.recent[self.next % self.recent.len()] = (now_us, sample_us);
+        self.next += 1;
         self.smoothed_us = if self.smoothed_us == 0 {
             sample_us
         } else {
@@ -438,6 +465,48 @@ impl RttFilter {
             (a, b) => a.min(b),
         };
         Duration::from_micros(us)
+    }
+
+    /// The smallest sample of the last second, or the latest sample if
+    /// none is that recent. A queue that persists raises every sample;
+    /// jitter raises only some.
+    ///
+    /// Behind a queue of seconds no answer arrives at all, so a PING
+    /// unanswered for over a second also counts: the round trip is at least
+    /// that long.
+    fn standing(&self, now_us: u64) -> Duration {
+        let n = self.next.min(self.recent.len());
+        let mut us = if n == 0 {
+            Self::DEFAULT.as_micros() as u64
+        } else {
+            let latest = self.recent[(self.next - 1) % self.recent.len()].1;
+            self.recent[..n]
+                .iter()
+                .filter(|(at, _)| now_us.saturating_sub(*at) <= Self::STANDING_US)
+                .map(|(_, rtt)| *rtt)
+                .min()
+                .unwrap_or(latest)
+        };
+        let waited = self
+            .waiting
+            .front()
+            .map_or(0, |&t| now_us.saturating_sub(t));
+        if waited > Self::STANDING_US {
+            us = us.max(waited);
+        }
+        Duration::from_micros(us)
+    }
+
+    fn sent(&mut self, stamp_us: u64) {
+        if self.waiting.len() < 64 {
+            self.waiting.push_back(stamp_us);
+        }
+    }
+
+    fn answered(&mut self, stamp_us: u64) {
+        while self.waiting.front().is_some_and(|&t| t <= stamp_us) {
+            self.waiting.pop_front();
+        }
     }
 }
 
@@ -591,6 +660,10 @@ pub struct ChanRx {
     window: u32,
     consumed: u32,
     last_grant: Instant,
+    /// Bytes delivered and the time they took, decaying by a quarter per
+    /// grant: about the last window's worth, which smooths out bursts.
+    paced_bytes: f64,
+    paced_secs: f64,
 }
 
 impl ChanRx {
@@ -613,41 +686,98 @@ impl ChanRx {
     /// Data a window allows beyond the BDP only waits in ssh's and the
     /// kernel's buffers, delaying every other channel; keeping windows near
     /// 2x BDP keeps pages responsive during big downloads.
+    ///
+    /// Those rules alone never take a window below the initial one, so when
+    /// the tunnel is far slower than the windows (a slow or distant path),
+    /// N busy channels keep N initial windows queued: seconds of delay for
+    /// every channel. The brake handles that: when a channel's window takes
+    /// more than four round trips to drain and the tunnel's standing RTT is
+    /// over two, it withholds grants until the window drains in about 2.5
+    /// round trips, down to `min_window`. Round trips count as at least
+    /// `brake_rtt` here, so Wi-Fi jitter on a fast path never brakes. While
+    /// that standing queue lasts, no window grows. A braked window grows
+    /// back to the initial one by half at a time while it drains in under
+    /// two round trips. Drain times here use about the last window's pace,
+    /// since a single quarter can arrive in one burst.
     pub fn consumed(&mut self, n: usize) {
         self.consumed += n as u32;
-        if self.consumed < self.window / 4 {
+        if self.consumed == 0 || self.consumed < self.window / 4 {
             return;
         }
-        let inner = &self.shared.inner;
+        let shared = self.shared.clone();
+        let inner = &shared.inner;
+        let cfg = &inner.cfg;
         let mut grant = self.consumed;
         let now = Instant::now();
         let interval = now.duration_since(self.last_grant);
-        let min_rtt = inner.min_rtt();
-        if interval < min_rtt / 2 && self.window < inner.cfg.max_window {
-            let grow = self.window.min(inner.cfg.max_window - self.window);
-            let total = inner.total_window.load(Relaxed);
-            if total + grow as u64 <= inner.cfg.global_window_cap {
-                inner.total_window.fetch_add(grow as u64, Relaxed);
-                self.shared.window.fetch_add(grow as u64, Relaxed);
-                self.window += grow;
-                grant += grow;
-                trace!(chan = self.shared.id, window = self.window, "window grown");
-            }
-        } else if interval > min_rtt * 2 && self.window > inner.cfg.initial_window {
+        let (min_rtt, standing) = inner.rtt_view();
+        // Time to drain the whole window at the pace of about the last
+        // window: a single quarter can arrive in one burst.
+        self.paced_bytes = self.paced_bytes * 0.75 + self.consumed as f64;
+        self.paced_secs = self.paced_secs * 0.75 + interval.as_secs_f64();
+        let drain = Duration::from_secs_f64(
+            (self.window as f64 * self.paced_secs / self.paced_bytes).min(1e6),
+        );
+        let slow = min_rtt.max(cfg.brake_rtt);
+        // Data arrives in bursts, so one quick quarter proves little; while
+        // the tunnel holds a standing queue, no window grows.
+        let queued = standing > slow * 2;
+        if queued && drain > slow * 4 {
+            let target =
+                (self.window as f64 * (slow.as_secs_f64() * 2.5 / drain.as_secs_f64())) as u32;
+            let target = target.max(cfg.min_window).min(self.window);
+            let shrink = grant.min(self.window - target);
+            self.shrink(shrink);
+            grant -= shrink;
+            trace!(
+                chan = self.shared.id,
+                window = self.window,
+                ?drain,
+                ?standing,
+                "braked"
+            );
+        } else if !queued && interval < min_rtt / 2 && self.window < cfg.max_window {
+            grant += self.grow(self.window.min(cfg.max_window - self.window));
+        } else if !queued && self.window < cfg.initial_window && drain < slow * 2 {
+            grant += self.grow((self.window / 2).min(cfg.initial_window - self.window));
+        } else if interval > min_rtt * 2 && self.window > cfg.initial_window {
             // `grant` is at least window/4, so this cannot underflow.
-            let shrink = (self.window / 4).min(self.window - inner.cfg.initial_window);
-            inner.total_window.fetch_sub(shrink as u64, Relaxed);
-            self.shared.window.fetch_sub(shrink as u64, Relaxed);
-            self.window -= shrink;
+            let shrink = (self.window / 4).min(self.window - cfg.initial_window);
+            self.shrink(shrink);
             grant -= shrink;
             trace!(chan = self.shared.id, window = self.window, "window shrunk");
         }
         self.last_grant = now;
         self.consumed = 0;
+        if grant == 0 {
+            return;
+        }
         // Raise the allowance before telling the peer, so the reader can never
         // see data the peer was entitled to send as an overrun.
         self.shared.recv_allow.fetch_add(grant as i64, AcqRel);
         inner.send_ctrl(Frame::window(self.shared.id, grant));
+    }
+
+    /// Grows the window by `by` unless that would pass the global cap.
+    /// Returns how much it grew.
+    fn grow(&mut self, by: u32) -> u32 {
+        let inner = &self.shared.inner;
+        let total = inner.total_window.load(Relaxed);
+        if total + by as u64 > inner.cfg.global_window_cap {
+            return 0;
+        }
+        inner.total_window.fetch_add(by as u64, Relaxed);
+        self.shared.window.fetch_add(by as u64, Relaxed);
+        self.window += by;
+        trace!(chan = self.shared.id, window = self.window, "window grown");
+        by
+    }
+
+    fn shrink(&mut self, by: u32) {
+        let inner = &self.shared.inner;
+        inner.total_window.fetch_sub(by as u64, Relaxed);
+        self.shared.window.fetch_sub(by as u64, Relaxed);
+        self.window -= by;
     }
 
     /// Reports a UDP datagram of `n` bytes handled, freeing queue space.
@@ -975,19 +1105,74 @@ async fn writer<W>(
 }
 
 async fn pinger(inner: std::sync::Weak<Inner>) {
-    let interval = match inner.upgrade() {
-        Some(i) => i.cfg.ping_interval,
-        None => return,
-    };
     // First probe right away: windows autotune from the measured RTT.
-    let mut tick = tokio::time::interval(interval);
+    let mut received = 0;
     loop {
-        tick.tick().await;
-        let Some(inner) = inner.upgrade() else { return };
-        if inner.is_closed() {
-            return;
+        let wait = {
+            let Some(inner) = inner.upgrade() else { return };
+            if inner.is_closed() {
+                return;
+            }
+            let stamp = inner.start.elapsed().as_micros() as u64;
+            inner.rtt.lock().unwrap().sent(stamp);
+            inner.send_ctrl(Frame::ping(Kind::Ping, stamp));
+            // Probe more often while DATA arrives: the brake needs to see
+            // a queue build and drain.
+            let now = inner.stats.bytes_down.load(Relaxed);
+            let busy = now != received;
+            received = now;
+            if busy {
+                inner.cfg.busy_ping_interval
+            } else {
+                inner.cfg.ping_interval
+            }
+        };
+        tokio::time::sleep(wait).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MS: u64 = 1000;
+
+    #[test]
+    fn standing_rtt_ignores_jitter_but_not_a_queue() {
+        let mut f = RttFilter::default();
+        assert_eq!(f.standing(0), RttFilter::DEFAULT);
+        // Jitter: one low sample in the last second keeps it low.
+        for (i, rtt) in [20, 90, 20, 150, 95].iter().enumerate() {
+            f.add(i as u64 * 250 * MS, rtt * MS);
         }
-        let stamp = inner.start.elapsed().as_micros() as u64;
-        inner.send_ctrl(Frame::ping(Kind::Ping, stamp));
+        assert_eq!(f.standing(1000 * MS), Duration::from_millis(20));
+        // A queue that stays raises every sample.
+        for i in 5..10 {
+            f.add(i * 250 * MS, 900 * MS);
+        }
+        assert_eq!(f.standing(2250 * MS), Duration::from_millis(900));
+        assert_eq!(f.min(), Duration::from_millis(20));
+        // Old samples age out; the latest stands in when nothing is recent.
+        assert_eq!(f.standing(60_000 * MS), Duration::from_millis(900));
+    }
+
+    #[test]
+    fn unanswered_ping_counts_once_over_a_second() {
+        let mut f = RttFilter::default();
+        f.sent(0);
+        f.answered(0);
+        f.add(100 * MS, 100 * MS);
+        f.sent(200 * MS);
+        f.sent(450 * MS);
+        // Waiting 800 ms could be jitter.
+        assert_eq!(f.standing(1000 * MS), Duration::from_millis(100));
+        // Waiting 3 s is a queue, though no sample says so yet.
+        assert_eq!(f.standing(3200 * MS), Duration::from_millis(3000));
+        // Its answer clears it; the next one waits less.
+        f.answered(200 * MS);
+        f.add(3300 * MS, 3100 * MS);
+        assert_eq!(f.standing(3300 * MS), Duration::from_millis(3100));
+        f.answered(450 * MS);
+        assert!(f.waiting.is_empty());
     }
 }

@@ -169,7 +169,7 @@ The client runs your normal `ssh`, so `~/.ssh/config`, keys, the agent and Proxy
 ## How it works
 
 - The client starts your `ssh` and runs `sshuttle2-server` on the server. That one SSH session carries every connection.
-- Each connection gets its own lane with its own flow control, so one big download doesn't block the rest. Each lane's window grows while it limits the speed and shrinks when it only builds a queue.
+- Each connection gets its own lane with its own flow control, so one big download doesn't block the rest. Each lane's window grows while it limits the speed and shrinks when it only builds a queue, so a slow or distant server does not leave seconds of data queued in front of every other connection.
 - pf (macOS) or nftables (Linux) redirects TCP and DNS to the client. tun mode uses a virtual network device and a user-space TCP/IP stack ([ipstack](https://github.com/narrowlink/ipstack), vendored with a patch in [third_party/ipstack](third_party/ipstack/PATCHES.md)).
 - No Python anywhere: both ends are compiled Rust. The server is a static Linux binary, embedded in the client.
 - Wire format: [docs/PROTOCOL.md](docs/PROTOCOL.md).
