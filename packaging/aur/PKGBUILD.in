@@ -1,0 +1,31 @@
+# Maintainer: Allwin <111454915+allwinpower at users dot noreply dot github dot com>
+# Made from packaging/aur/PKGBUILD.in in allwinpower/sshuttle2.
+
+pkgname=sshuttle2-bin
+pkgver={{VERSION}}
+pkgrel=1
+pkgdesc='VPN over a plain SSH login (prebuilt static binary)'
+arch=('x86_64' 'aarch64')
+url='https://github.com/allwinpower/sshuttle2'
+license=('LGPL-2.1-or-later' 'Apache-2.0')
+depends=('openssh')
+optdepends=('nftables: nft mode, which sends TCP and DNS through the firewall'
+            'sudo: root for the pf, nft and tun modes (doas works too)')
+provides=('sshuttle2')
+conflicts=('sshuttle2')
+options=('!strip' '!debug')
+_release="$url/releases/download/v$pkgver"
+source_x86_64=("$_release/sshuttle2-$pkgver-linux-amd64.tar.gz")
+source_aarch64=("$_release/sshuttle2-$pkgver-linux-arm64.tar.gz")
+sha256sums_x86_64=('{{SHA256_LINUX_AMD64}}')
+sha256sums_aarch64=('{{SHA256_LINUX_ARM64}}')
+
+package() {
+  local cpu=amd64
+  [[ $CARCH == aarch64 ]] && cpu=arm64
+  cd "sshuttle2-$pkgver-linux-$cpu"
+  install -Dm755 sshuttle2 "$pkgdir/usr/bin/sshuttle2"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 LICENSE-ipstack "$pkgdir/usr/share/licenses/$pkgname/LICENSE-ipstack"
+}

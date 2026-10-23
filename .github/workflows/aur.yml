@@ -1,0 +1,77 @@
+name: AUR
+
+# Builds the sshuttle2-bin AUR package from a published final release on
+# Arch Linux, installs and checks it, then pushes it to the AUR with the
+# AUR_SSH_KEY secret. Without the secret it only checks. Run it after a
+# release (docs/RELEASING.md):
+#
+#   gh workflow run aur.yml -f version=0.2.0
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: A published final release, such as 0.2.0
+        required: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  aur:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+      HAS_KEY: ${{ secrets.AUR_SSH_KEY != '' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build, install and check the package
+        run: |
+          set -euo pipefail
+          [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not a final version: $VERSION"; exit 1; }
+          pkg=$RUNNER_TEMP/aur
+          mkdir -p "$pkg"
+          curl -fsSL -o "$RUNNER_TEMP/SHA256SUMS" \
+            "https://github.com/allwinpower/sshuttle2/releases/download/v$VERSION/SHA256SUMS"
+          packaging/aur/pkgbuild.sh "$VERSION" "$RUNNER_TEMP/SHA256SUMS" >"$pkg/PKGBUILD"
+          # No tarball here: makepkg downloads it from the release, as AUR users will.
+          docker run --rm -e VERSION -v "$pkg:/pkg" -v "$PWD:/src:ro" archlinux:latest \
+            bash /src/packaging/aur/check.sh /pkg
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aur
+          path: ${{ runner.temp }}/aur/out/
+          include-hidden-files: true
+          if-no-files-found: error
+      - name: Push to the AUR
+        if: env.HAS_KEY == 'true'
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$AUR_SSH_KEY" >~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          # Pinned: the ED25519 key the AUR publishes on its home page
+          # (SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4).
+          echo 'aur.archlinux.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuBKrPzbawxA/k2g6NcyV5jmqwJ2s+zpgZGZ7tpLIcN' >~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+          aur=$RUNNER_TEMP/aur-repo
+          # The first push of a new name creates the package.
+          git clone ssh://aur@aur.archlinux.org/sshuttle2-bin.git "$aur"
+          cp "$RUNNER_TEMP/aur/out/PKGBUILD" "$RUNNER_TEMP/aur/out/.SRCINFO" "$aur/"
+          cd "$aur"
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "The AUR already has sshuttle2-bin $VERSION"
+            exit 0
+          fi
+          git -c user.name=Allwin -c user.email=111454915+allwinpower@users.noreply.github.com \
+            commit -m "sshuttle2-bin $VERSION"
+          git push origin HEAD:master
+      - name: Not pushed
+        if: env.HAS_KEY != 'true'
+        run: echo "::notice::No AUR_SSH_KEY secret, so the package was checked but not pushed. PKGBUILD and .SRCINFO are in the 'aur' artifact."
