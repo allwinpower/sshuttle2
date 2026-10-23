@@ -633,7 +633,7 @@ dependencies = [
 
 [[package]]
 name = "sshuttle2"
-version = "0.1.2-rc.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "bytes",
@@ -653,7 +653,7 @@ dependencies = [
 
 [[package]]
 name = "sshuttle2-core"
-version = "0.1.2-rc.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "bytes",
@@ -664,7 +664,7 @@ dependencies = [
 
 [[package]]
 name = "sshuttle2-server"
-version = "0.1.2-rc.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "bytes",
@@ -864,7 +864,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.2-rc.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "flate2",
