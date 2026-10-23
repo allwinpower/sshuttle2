@@ -155,7 +155,7 @@ def main():
         if o:
             md.append(f"Ookla server {o.get('id')}: {o.get('name')}, {o.get('location')}, {o.get('country')}.")
         if vm.get("package"):
-            md.append(f"LightNode package {vm['package']} (bandwidth {vm.get('bandwidth', '?')}).")
+            md.append(f"LightNode package {vm['package']} ({vm.get('traffic_gb', '?')} GB traffic a month).")
         md += [
             "",
             "| | Download | Upload | Ping | Ping, downloading | Ping, uploading"

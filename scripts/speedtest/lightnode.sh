@@ -4,14 +4,19 @@
 #   lightnode.sh list [REGION...]          regions; packages and images of each REGION
 #   lightnode.sh zone REGION               the region's first zone
 #   lightnode.sh package REGION ZONE CPU GB
-#                                          "CODE BANDWIDTH" of the package with that
-#                                          size and the most bandwidth
+#                                          "CODE TRAFFIC" of the package with that size,
+#                                          billed by traffic (no bandwidth cap), with the
+#                                          least traffic a month and the smallest data disk
 #   lightnode.sh image REGION REGEX        UUID of the first system image matching REGEX
 #   lightnode.sh create NAME REGION ZONE PACKAGE IMAGE
 #                                          "TASK UUID"; root password from VM_PASSWORD
 #   lightnode.sh wait TASK                 until the async task has finished
 #   lightnode.sh ip UUID                   the public IPv4 address, once the VM runs
+#   lightnode.sh delete UUID               deletes one VM
 #   lightnode.sh sweep PREFIX REGION       deletes every VM named PREFIX* in REGION
+#
+# delete and sweep touch only VMs named s2bench-*: the account's other
+# servers are never deleted, whatever ID or prefix they are given.
 #
 # The token comes from LIGHTNODE_TOKEN. It reaches curl through a file
 # descriptor, never a command line, and nothing here prints it.
@@ -47,6 +52,12 @@ call() {
   return 1
 }
 
+# fields: the names (never the values) of every field in a response, for an
+# error message when the API answers in a shape this script does not expect.
+fields() {
+  jq -r '[paths | map(select(type == "string")) | join(".")] | unique | map(select(. != "")) | join(", ")'
+}
+
 zones() {
   call GET /region/list | jq -r --arg r "$1" '.regions[] | select(.regionCode == $r) | .zones[].zoneCode'
 }
@@ -56,7 +67,7 @@ images() {
   local page=1 out
   while :; do
     out=$(call GET "/image/list?regionCode=$1&imageType=System&page=$page&pageSize=50")
-    jq -r '.images[] | [.imageResourceUUID, .osVersionDetail, .imageName] | @tsv' <<<"$out"
+    jq -r '.images[] | [.imageResourceUUID, .osVersionDetail, .imageName] | map(. // "-" | tostring) | @tsv' <<<"$out"
     [ "$(jq '.images | length' <<<"$out")" -lt 50 ] && break
     page=$((page + 1))
   done
@@ -88,7 +99,7 @@ wait_task() {
     fi
     sleep 5
   done
-  echo "lightnode: task $1 did not finish in 10 minutes" >&2
+  echo "lightnode: task $1 did not finish in 10 minutes; its fields: $(fields <<<"$out")" >&2
   return 1
 }
 
@@ -101,9 +112,12 @@ list)
   for region in "$@"; do
     [ -n "$region" ] || continue
     echo
-    echo "== $region: packages (code, zone, vCPU, GB, bandwidth, free traffic, billing)"
-    call GET "/package/list?regionCode=$region" |
-      jq -r '.packages | sort_by(.cpu, .memory)[] | [.packageCode, .zoneCode, .cpu, .memory, .bandwidth, .freeFlow, .publicIpChargeMode] | @tsv'
+    echo "== $region: packages (code, zone, vCPU, GB, traffic GB a month, billing)"
+    out=$(call GET "/package/list?regionCode=$region")
+    echo "fields: $(fields <<<"$out")"
+    jq -r '.packages | sort_by(.cpu, .memory)[]
+      | [.packageCode, .zoneCode, .cpu, .memory, .freeFlow, .publicIpChargeMode]
+      | map(. // "-" | tostring) | @tsv' <<<"$out"
     echo
     echo "== $region: Linux system images (uuid, os, name)"
     images "$region" | grep -i -E 'ubuntu|debian' || true
@@ -115,15 +129,31 @@ zone)
   echo "$z"
   ;;
 package)
-  p=$(call GET "/package/list?regionCode=$1&zoneCode=$2" |
-    jq -r --argjson c "$3" --argjson m "$4" \
-      '[.packages[] | select(.cpu == $c and .memory == $m)] | sort_by(-.bandwidth) | .[0] // empty | "\(.packageCode) \(.bandwidth)"')
-  [ -n "$p" ] || { echo "lightnode: no $3 vCPU / $4 GB package in $1 ($2)" >&2; exit 1; }
+  # Packages billed by bandwidth (PayByBandwidth, "-b5-") are capped at a few
+  # Mbit/s; those billed by traffic ("-t1000-") are not. Numbers may come as
+  # strings, and memory in MB.
+  out=$(call GET "/package/list?regionCode=$1&zoneCode=$2")
+  p=$(jq -r --argjson c "$3" --argjson m "$4" '
+    def num: if type == "string" then (tonumber? // null) else . end;
+    [.packages[] | select((.cpu | num) == $c and ((.memory | num) == $m or (.memory | num) == $m * 1024))
+      | select(.publicIpChargeMode == "PayByTraffic" and (.freeFlow | num) != null)]
+    | sort_by((.freeFlow | num), ((.dataDiskSize | num) // 0)) | .[0] // empty
+    | "\(.packageCode) \(.freeFlow)"' <<<"$out")
+  if [ -z "$p" ]; then
+    echo "lightnode: no $3 vCPU / $4 GB package billed by traffic in $1 ($2). There:" >&2
+    jq -r '.packages[] | "  \(.packageCode): \(.cpu) vCPU, \(.memory) GB, traffic \(.freeFlow // "-")"' <<<"$out" >&2
+    echo "  fields: $(fields <<<"$out")" >&2
+    exit 1
+  fi
   echo "$p"
   ;;
 image)
   i=$(images "$1" | awk -F'\t' -v re="$2" '$2 ~ re || $3 ~ re {print $1; exit}')
-  [ -n "$i" ] || { echo "lightnode: no image matching '$2' in $1" >&2; exit 1; }
+  if [ -z "$i" ]; then
+    echo "lightnode: no image matching '$2' in $1. Images there:" >&2
+    images "$1" | cut -f2,3 | sort -u | head -40 >&2
+    exit 1
+  fi
   echo "$i"
   ;;
 create)
@@ -132,7 +162,10 @@ create)
   body=$(jq -n --arg name "$1" --arg region "$2" --arg zone "$3" --arg pkg "$4" --arg image "$5" \
     '{packageConfig: {instanceName: $name, regionCode: $region, zoneCode: $zone,
       packageCode: $pkg, imageResourceUUID: $image, password: env.VM_PASSWORD}}')
-  call POST /instance/create "$body" | jq -r '.asyncTaskInfo | "\(.asyncTaskUUID) \(.ecsResourceUUID)"'
+  out=$(call POST /instance/create "$body")
+  r=$(jq -r '.asyncTaskInfo | "\(.asyncTaskUUID // "") \(.ecsResourceUUID // "")"' <<<"$out")
+  [[ $r != " "* && $r != *" " ]] || { echo "lightnode: create answered without a task; fields: $(fields <<<"$out")" >&2; exit 1; }
+  echo "$r"
   ;;
 wait)
   wait_task "$1"
@@ -148,11 +181,21 @@ ip)
     fi
     sleep 5
   done
-  echo "lightnode: VM $1 has no public address after 10 minutes (status ${status:-unknown})" >&2
+  # Field names only: a value could be the address, and this log is public.
+  echo "lightnode: VM $1 has no public address after 10 minutes (status ${status:-unknown}); fields: $(fields <<<"$out")" >&2
   exit 1
+  ;;
+delete)
+  name=$(call GET "/instance/detail?ecsResourceUUID=$1" | jq -r '.instance.instanceName // empty')
+  [[ $name == s2bench-* ]] || { echo "lightnode: VM $1 is named '${name:-?}', not s2bench-*; not deleting it" >&2; exit 1; }
+  out=$(call POST /instance/release "$(jq -n --arg u "$1" '{ecsResourceUUID: $u}')")
+  task=$(jq -r '.asyncTaskInfo.asyncTaskUUID // empty' <<<"$out")
+  [ -n "$task" ] || { echo "lightnode: delete of $1 answered without a task; fields: $(fields <<<"$out")" >&2; exit 1; }
+  wait_task "$task"
   ;;
 sweep)
   prefix=$1 region=$2
+  [[ $prefix == s2bench-* ]] || { echo "lightnode: sweep deletes only s2bench-* VMs, not $prefix*" >&2; exit 1; }
   # Delete, then look again: a VM still being created refuses to be deleted,
   # and a deleted one may stay listed for a while with a final status.
   for attempt in $(seq 1 20); do

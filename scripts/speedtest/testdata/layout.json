@@ -5,23 +5,23 @@
     "client": {
       "region": "region-a",
       "package": "pkg-c2m4",
-      "bandwidth": "1000",
       "cpus": 2,
-      "mem_gb": 4
+      "mem_gb": 4,
+      "traffic_gb": "1000"
     },
     "near-1c": {
       "region": "region-a",
       "package": "pkg-c1m2",
-      "bandwidth": "1000",
       "cpus": 1,
-      "mem_gb": 2
+      "mem_gb": 2,
+      "traffic_gb": "1000"
     },
     "far-1c": {
       "region": "region-b",
       "package": "pkg-c1m2",
-      "bandwidth": "1000",
       "cpus": 1,
-      "mem_gb": 2
+      "mem_gb": 2,
+      "traffic_gb": "1000"
     }
   }
 }
