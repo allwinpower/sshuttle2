@@ -26,11 +26,27 @@ Measured on a Mac on the hospital Wi-Fi from the story, 23 October 2026, through
 - Pages answered about **14 times faster** than with sshuttle, and about 10 times faster while a download ran.
 - Downloads were about **1.5 times faster**. The bare Wi-Fi did 91.9 Mbit/s, so there is room left.
 
-These are single samples on a shared Wi-Fi. A second run that evening, with the Wi-Fi under heavy load, put every SSH tunnel, sshuttle included, at 13–20 Mbit/s and about 200 ms. Plain SSH itself got only about 30 Mbit/s then. A repeat with medians, on a quiet network and two server sizes, is on the [TODO](TODO.md) list.
+These are single samples on a shared Wi-Fi. A second run that evening, with the Wi-Fi under heavy load, put every SSH tunnel, sshuttle included, at 13–20 Mbit/s and about 200 ms. Plain SSH itself got only about 30 Mbit/s then.
 
 Reproduce on a Mac: `scripts/mac-speed-check.sh [user@]host...`. Measure a server in SOCKS5 mode, against OpenSSH's own `ssh -D`: `scripts/bench.sh [user@]host`.
 
-Fresh numbers on rented servers, with server and client CPU and memory: the [Speed test](docs/SPEEDTEST.md) workflow (the owner starts it).
+### On rented servers
+
+Measured on 23 October 2026 with Ookla's speedtest: a client and a 1 vCPU / 2 GB server, both in Frankfurt (3 ms apart). Medians of 3 rounds. Every port there tops out at about 100 Mbit/s.
+
+| | Download | Upload | Ping, downloading | Server CPU | Server RAM |
+|---|---:|---:|---:|---:|---:|
+| sshuttle | 55 Mbit/s | 58 Mbit/s | **10 ms** | 61 % | 30 MB |
+| **sshuttle2**, nft mode (TCP + DNS) | **97 Mbit/s** | **97 Mbit/s** | 47 ms | **26 %** | **13 MB** |
+| **sshuttle2**, tun mode (TCP + UDP + DNS) | 96 Mbit/s | 95 Mbit/s | 38 ms | **26 %** | 14 MB |
+
+*Server CPU: average while Ookla ran, in % of one core. Server RAM: peak. Every mode, the 2 vCPU server and the far region: [docs/speed-results.md](docs/speed-results.md).*
+
+- sshuttle2 fills the port in both directions, with half of sshuttle's server CPU and memory.
+- The price is delay while the link is full: 38–47 ms against sshuttle's 10 ms.
+- **Far apart, every tunnel stalls.** With the server in Washington, 88 ms away, sshuttle got 1.3 Mbit/s and sshuttle2 about 2 Mbit/s, while the same path does 100 Mbit/s without a tunnel. Fixing that is on the [TODO](TODO.md) list.
+
+Run it again: the [Speed test](docs/SPEEDTEST.md) workflow (the owner starts it).
 
 ### Linux client and mimalloc
 
