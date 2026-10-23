@@ -294,6 +294,7 @@ impl AsyncRead for IpStackTcpStream {
             let len = std::cmp::min(buf.remaining(), self.temp_read_buffer.len());
             buf.put_slice(&self.temp_read_buffer[..len]);
             self.temp_read_buffer.drain(..len); // remove the read data from the temp buffer
+            self.read_done(len)?;
             return Poll::Ready(Ok(()));
         }
 
@@ -330,7 +331,8 @@ impl AsyncRead for IpStackTcpStream {
         // read data from channel
         match self.data_rx.poll_recv(cx) {
             Poll::Ready(Some(data)) => {
-                self.put_read_data(buf, data);
+                let n = self.put_read_data(buf, data);
+                self.read_done(n)?;
                 Poll::Ready(Ok(()))
             }
             Poll::Ready(None) => Poll::Ready(Ok(())),
@@ -351,15 +353,31 @@ impl AsyncRead for IpStackTcpStream {
 }
 
 impl IpStackTcpStream {
-    fn put_read_data(&mut self, buf: &mut tokio::io::ReadBuf<'_>, data: Vec<u8>) {
+    /// Returns how much went into `buf`; the rest waits in the temp buffer.
+    fn put_read_data(&mut self, buf: &mut tokio::io::ReadBuf<'_>, data: Vec<u8>) -> usize {
         let capacity = buf.remaining();
         if capacity >= data.len() {
             buf.put_slice(&data);
+            data.len()
         } else {
             // if `buf` is not enough, put the remaining data into the temp buffer
             buf.put_slice(&data[..capacity]);
             self.temp_read_buffer.extend_from_slice(&data[capacity..]);
+            capacity
         }
+    }
+
+    // sshuttle2 patch: the upper layer has read `n` bytes. Free their room
+    // in the receive window, and if the app may be waiting for that room,
+    // tell it.
+    fn read_done(&mut self, n: usize) -> std::io::Result<()> {
+        let network_tuple = self.network_tuple();
+        let mut tcb = self.tcb.lock().unwrap();
+        tcb.sub_unread(n);
+        if tcb.get_state() == TcpState::Established && tcb.window_update_due() {
+            write_packet_to_device(&self.up_packet_sender, network_tuple, &tcb, None, ACK, None, None)?;
+        }
+        Ok(())
     }
 
     // sshuttle2 patch: `poll_read` once no more data can arrive: what is
@@ -368,7 +386,8 @@ impl IpStackTcpStream {
     // early.
     fn read_after_fin(&mut self, buf: &mut tokio::io::ReadBuf<'_>, state: TcpState) -> Poll<std::io::Result<()>> {
         if let Ok(data) = self.data_rx.try_recv() {
-            self.put_read_data(buf, data);
+            let n = self.put_read_data(buf, data);
+            self.tcb.lock().unwrap().sub_unread(n);
             return Poll::Ready(Ok(()));
         }
         if state == TcpState::Closed {
@@ -952,6 +971,7 @@ fn extract_data_n_write_upstream(
     while let Some(data) = tcb.consume_unordered_packets(8192) {
         let hint = if state == TcpState::Established { "normally" } else { "still" };
         log::trace!("{network_tuple} {state:?}: {l_info} {hint} receiving data, len = {}", data.len());
+        tcb.add_unread(data.len());
         data_tx.send(data).map_err(|e| std::io::Error::new(BrokenPipe, e))?;
         delivered = true;
     }
@@ -975,7 +995,10 @@ pub(crate) fn write_packet_to_device(
 ) -> std::io::Result<usize> {
     use std::io::Error;
     let seq = seq.unwrap_or(tcb.get_seq()).0;
-    let (ack, window_size) = (tcb.get_ack().0, tcb.get_recv_window().max(tcb.get_mtu()));
+    // sshuttle2 patch: the window may close (it was never below the MTU, which
+    // let an app send without limit; see `get_available_read_buffer_size`).
+    let (ack, window_size) = (tcb.get_ack().0, tcb.get_recv_window());
+    tcb.note_advertised(window_size);
     let (src, dst) = (tuple.dst, tuple.src); // Note: The address is reversed here
     let calc = |ip_header_len: usize, tcp_header_len: usize| tcb.calculate_payload_max_len(ip_header_len, tcp_header_len);
     let packet = create_raw_packet(
