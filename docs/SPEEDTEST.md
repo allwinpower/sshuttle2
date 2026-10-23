@@ -63,7 +63,7 @@ The job summary shows the tables. The artifact `speedtest-RUN_ID` holds `results
 
 **Cost:** 5 small VMs for about 1.5 hours, and about 70 GB of traffic through the client VM.
 
-**Ookla limits:** Ookla refuses many tests in a row from one address ("Limit reached"). The test then waits 90 s and tries once more; a mode that still fails shows as "1 of 3 runs" in the report.
+**Failed runs:** Ookla stops with "Cannot read from socket" when its connection stalls, which happens through a tunnel that queues too much data. The report says how many runs failed and in which phase (ping, download, upload). A run that failed during the upload still counts for its download. Ookla also refuses many tests in a row from one address ("Limit reached"); the test then waits 90 s and tries once more.
 
 **Ookla's terms:** the run accepts the CLI's license and GDPR terms (`--accept-license --accept-gdpr`) on the throwaway VMs.
 

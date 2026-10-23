@@ -31,6 +31,9 @@ def median(values):
 
 
 def summarize(runs):
+    """Medians over the rounds. Ookla's numbers count from every run that has
+    them, so a run that failed in the upload still counts for its download;
+    CPU and memory only from runs that finished."""
     ok = [r for r in runs if not r["ookla"].get("error")]
 
     def procs(key):
@@ -40,8 +43,12 @@ def summarize(runs):
     return {
         "runs": len(runs),
         "ok": len(ok),
-        "errors": [r["ookla"]["error"] for r in runs if r["ookla"].get("error")],
-        "ookla": {k: median([r["ookla"].get(k) for r in ok]) for k in OOKLA} if ok else None,
+        "failures": [
+            {"in": r["ookla"].get("failed_in", "start"),
+             "error": r["ookla"]["error"].removeprefix("Ookla: ").rstrip(": ")}
+            for r in runs if r["ookla"].get("error")
+        ],
+        "ookla": {k: median([r["ookla"].get(k) for r in runs]) for k in OOKLA},
         "server_proc": procs("server_proc"),
         "client_proc": procs("client_proc"),
     }
@@ -71,24 +78,35 @@ def version(text, name):
     return text if text.lower().startswith(name.lower()) else f"{name} {text}"
 
 
+def phases(failures):
+    """'during the upload', or several: where the failed runs stopped."""
+    names = {"start": "at the start", "ping": "during the ping", "download": "during the download",
+             "upload": "during the upload"}
+    return ", ".join(sorted({names.get(f["in"], f["in"]) for f in failures}))
+
+
 def row(label, s):
-    if s["ok"] == 0:
-        first = s["errors"][0] if s["errors"] else "no result"
-        return f"| {label} | failed: {first} |" + " |" * 8
     o, sp, cp = s["ookla"], s["server_proc"], s["client_proc"]
+    if all(v is None for v in o.values()):
+        f = s["failures"][0] if s["failures"] else {"in": "start", "error": "no result"}
+        return f"| {label} | failed {phases(s['failures'] or [f])}: {f['error']} |" + " |" * 8
+
+    def speed(k, unit):
+        return num(o[k], unit) if o[k] is not None or not s["failures"] else "failed"
+
     cells = [
-        num(o["download_mbps"], " Mbit/s"),
-        num(o["upload_mbps"], " Mbit/s"),
-        num(o["ping_ms"], " ms"),
-        num(o["download_ping_ms"], " ms"),
-        num(o["upload_ping_ms"], " ms"),
+        speed("download_mbps", " Mbit/s"),
+        speed("upload_mbps", " Mbit/s"),
+        speed("ping_ms", " ms"),
+        speed("download_ping_ms", " ms"),
+        speed("upload_ping_ms", " ms"),
         f"{num(sp['cpu_avg'])} % ({num(sp['cpu_peak'])} %)" if sp else "–",
         f"{num(sp['rss_idle_mb'])} → {num(sp['rss_peak_mb'])} MB" if sp else "–",
         f"{num(cp['cpu_avg'])} % ({num(cp['cpu_peak'])} %)" if cp else "–",
         f"{num(cp['rss_idle_mb'])} → {num(cp['rss_peak_mb'])} MB" if cp else "–",
     ]
-    if s["ok"] < s["runs"]:
-        label += f" ({s['ok']} of {s['runs']} runs)"
+    if s["failures"]:
+        label += f" (failed {len(s['failures'])} of {s['runs']}, {phases(s['failures'])})"
     return f"| {label} | " + " | ".join(cells) + " |"
 
 
@@ -176,6 +194,9 @@ def main():
         "CPU: average while Ookla ran, in % of one core; in parentheses the busiest second."
         " RAM: resident memory, idle → peak.",
         "Server: sshd plus the tunnel's server process. Client: the tunnel client, its helpers and its ssh.",
+        "Failed: Ookla stopped with an error, mostly \"Cannot read from socket\" when its connection stalled."
+        " A failed run still counts for what Ookla finished before (the download); CPU and RAM count only"
+        " finished runs.",
     ]
     text = "\n".join(md) + "\n"
     if args.md:
