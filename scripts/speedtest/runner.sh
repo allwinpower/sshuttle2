@@ -186,8 +186,10 @@ run)
       esac
     else
       misses=$((misses + 1))
+      # sshuttle (nat method) also redirects connections coming in to the
+      # client VM, so while it runs this one fails for a minute or two.
       echo "(no answer from the client VM, $misses in a row)"
-      [ "$misses" -lt 15 ] || { echo "lost the client VM" >&2; exit 1; }
+      [ "$misses" -lt 45 ] || { echo "lost the client VM" >&2; exit 1; }
     fi
   done
   ;;

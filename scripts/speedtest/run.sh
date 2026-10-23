@@ -34,25 +34,38 @@ server_match='assembler[.]py|sshuttle2-server-[0-9a-f]+ server'
 rm -f run.done
 
 # ookla [ssh ALIAS]: one Ookla run against $ookla_id, here or on ALIAS.
-# Prints the fields we keep, as JSON, or {"error": ...}. Ookla refuses too
-# many tests in a row ("Limit reached"); that gets one retry after a pause.
+# Prints the fields we keep, as JSON. A run that fails prints
+# {"error": ..., "failed_in": "ping" | "download" | "upload", "failed_at": 0.4}
+# and the download if Ookla finished it. (Not the ping: Ookla's final ping is
+# not the one its progress lines show.) Ookla refuses too many
+# tests in a row ("Limit reached"); that gets one retry after a pause.
 ookla() {
-  local raw err try
+  local err try
   for try in 1 2; do
-    raw=$(timeout 180 "$@" speedtest --accept-license --accept-gdpr -p no -f json -s "$ookla_id" 2>"$tmp/ookla.err")
-    if jq -e '.download.bandwidth' <<<"$raw" >/dev/null 2>&1; then
-      jq -c '{download_mbps: (.download.bandwidth * 8 / 1e6), upload_mbps: (.upload.bandwidth * 8 / 1e6),
-        ping_ms: .ping.latency, jitter_ms: .ping.jitter,
+    # jsonl with progress: one line per step, so a failure shows where it was.
+    timeout 180 "$@" speedtest --accept-license --accept-gdpr -p yes -f jsonl -s "$ookla_id" \
+      >"$tmp/ookla.jsonl" 2>"$tmp/ookla.err"
+    if jq -se 'any(.[]; .type == "result")' "$tmp/ookla.jsonl" >/dev/null 2>&1; then
+      jq -c 'select(.type == "result") | {download_mbps: (.download.bandwidth * 8 / 1e6),
+        upload_mbps: (.upload.bandwidth * 8 / 1e6), ping_ms: .ping.latency, jitter_ms: .ping.jitter,
         download_ping_ms: .download.latency.iqm, upload_ping_ms: .upload.latency.iqm,
-        packet_loss: .packetLoss}' <<<"$raw"
+        packet_loss: .packetLoss}' "$tmp/ookla.jsonl"
       return
     fi
-    err=$( (cat "$tmp/ookla.err"; jq -r '.error? // .message? // empty' <<<"$raw" 2>/dev/null) | tr '\n' ' ' | tail -c 300)
+    err=$( (grep -i -E 'error|cannot|limit|fail|timeout' "$tmp/ookla.err"
+      jq -r 'select(.type == "log" or .error) | .message // .error' "$tmp/ookla.jsonl" 2>/dev/null) |
+      sed -E 's/^\[error\] *//; s/[: ]+$//' | tail -2 | tr '\n' ' ' | tail -c 200)
     [[ $try = 1 && $err == *"imit"* ]] || break
     echo "   Ookla: $err; trying again in 90 s" >&2
     sleep 90
   done
-  jq -cn --arg e "Ookla: ${err:-no result}" '{error: $e}'
+  jq -sc --arg e "${err:-no result}" '
+    (map(select(.type == "ping" or .type == "download" or .type == "upload")) | last) as $last
+    | (map(select(.type == "download" and .download.progress >= 1)) | last) as $d
+    | {error: ($e | sub("[ :]+$"; "")), failed_in: ($last.type // "start"),
+       failed_at: (if $last then $last[$last.type].progress else 0 end)}
+    + (if $d then {download_mbps: ($d.download.bandwidth * 8 / 1e6),
+         download_ping_ms: $d.download.latency.iqm} else {} end)' "$tmp/ookla.jsonl"
 }
 
 # Firewall rules a tunnel that did not exit cleanly can leave behind.
@@ -178,7 +191,9 @@ measure() {
     def n: if . == null then "-" else (. * 10 | round / 10 | tostring) end;
     def procs(p; name): if p == null then "" elif p.error then " | \(name): \(p.error)"
       else " | \(name) CPU \(p.cpu_avg | n) % (peak \(p.cpu_peak | n)), RAM \(p.rss_peak_mb | n) MB" end;
-    if .ookla.error then "\($tag): \(.ookla.error)"
+    if .ookla.error then "\($tag): Ookla failed in \(.ookla.failed_in) at \(.ookla.failed_at * 100 | floor) %: \(.ookla.error)"
+      + (if .ookla.download_mbps then " (download \(.ookla.download_mbps | n) Mbit/s)" else "" end)
+      + procs(.server_proc; "server") + procs(.client_proc; "client")
     else "\($tag): down \(.ookla.download_mbps | n), up \(.ookla.upload_mbps | n) Mbit/s, ping \(.ookla.ping_ms | n) ms (loaded \(.ookla.download_ping_ms | n) / \(.ookla.upload_ping_ms | n))"
       + procs(.server_proc; "server") + procs(.client_proc; "client") end' <<<"$line"
   sleep 3
