@@ -24,7 +24,13 @@ sudo apt install ./sshuttle2_{{VERSION}}_amd64.deb
 sudo dnf install ./sshuttle2-{{VERSION}}-1.x86_64.rpm
 ```
 
-A `.deb` or `.rpm` from here does not update itself: install the next release's file the same way.
+**Arch Linux** (final releases only; `aarch64` instead of `x86_64` on ARM):
+
+```bash
+sudo pacman -U https://github.com/allwinpower/sshuttle2/releases/download/v{{VERSION}}/sshuttle2-{{VERSION}}-1-x86_64.pkg.tar.zst
+```
+
+A `.deb`, `.rpm` or Arch package from here does not update itself: install the next release's file the same way.
 
 **By hand**: download `SHA256SUMS` and the `.tar.gz` for your system (`amd64` is x86_64, Intel and AMD), then (on macOS, `shasum -a 256` instead of `sha256sum`):
 

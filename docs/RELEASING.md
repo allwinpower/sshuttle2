@@ -44,6 +44,7 @@ It builds the `sshuttle2-bin` package from the published release on Arch Linux, 
 | `sshuttle2-VERSION-{macos,linux}-{amd64,arm64}.tar.gz` | The client, licenses and README. `amd64` is x86_64, named so because Homebrew misreads `-x86_64` in a prerelease as version 86.64. The Linux clients are static (musl) and run on any distribution. |
 | `sshuttle2_VERSION_{amd64,arm64}.deb` | Debian and Ubuntu package |
 | `sshuttle2-VERSION-1.{x86_64,aarch64}.rpm` | Fedora, RHEL and compatible package |
+| `sshuttle2-VERSION-1-{x86_64,aarch64}.pkg.tar.zst` | Arch Linux package, for `pacman -U`. Final releases only: nfpm would drop a prerelease from its version. |
 | `sshuttle2-VERSION-src.tar.gz` | The source, as `git archive` of the tag |
 | `install.sh` | Downloads and checks the right tarball |
 | `SHA256SUMS` | SHA-256 of all of the above |

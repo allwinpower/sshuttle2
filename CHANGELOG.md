@@ -2,6 +2,10 @@
 
 What changed in each release of sshuttle2. A release's section here becomes its GitHub Release notes ([docs/RELEASING.md](docs/RELEASING.md)).
 
+## [Unreleased]
+
+- An Arch Linux package (`.pkg.tar.zst`, x86_64 and aarch64) comes with every final release: `sudo pacman -U` its link. The AUR package `sshuttle2-bin` follows when the AUR takes new accounts again.
+
 ## [0.1.0] - 2026-10-23
 
 The first release.
