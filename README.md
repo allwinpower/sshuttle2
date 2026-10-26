@@ -37,7 +37,7 @@ sshuttle2 with the code of 0.1.1, 23 October 2026. One round on each server (1 v
 |---|---:|---:|---:|
 | sshuttle | 2.4 Mbit/s | 2.4–2.5 Mbit/s | **182–183 ms** |
 | **sshuttle2**, nft mode (TCP + DNS) | **95–98 Mbit/s** | **39–79 Mbit/s** | 272–295 ms |
-| **sshuttle2**, tun mode (TCP + UDP + DNS) | **97 Mbit/s** | failed | 233–252 ms |
+| **sshuttle2**, tun mode (TCP + UDP + DNS) | **97 Mbit/s** | failed before 0.1.2; fixed in 0.1.2 | 233–252 ms |
 
 - sshuttle2 downloads about **40 times faster** than sshuttle here.
 - Before 0.1.1, sshuttle2 stalled on this path too: about 2 Mbit/s, and Ookla gave up in every run. The window brake fixed that.
