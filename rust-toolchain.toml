@@ -2,5 +2,11 @@
 channel = "stable"
 profile = "minimal"
 components = ["clippy", "rustfmt"]
-# The server runs on Linux; release builds embed static binaries for both.
-targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]
+# The server runs on Linux and macOS; release builds embed a binary for each
+# of these.
+targets = [
+  "x86_64-unknown-linux-musl",
+  "aarch64-unknown-linux-musl",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+]

@@ -6,7 +6,7 @@
 
 A VPN over a plain SSH login. Written in Rust, inspired by [sshuttle](https://github.com/sshuttle/sshuttle).
 
-If you can log in to a server with SSH, sshuttle2 sends your traffic through it: TCP and DNS, and in tun mode all UDP too. You install nothing on the server and need no root there. On first run the client uploads a small server program over SSH.
+If you can log in to a server with SSH, sshuttle2 sends your traffic through it: TCP and DNS, and in tun mode all UDP too. You install nothing on the server and need no root there. On first run the client uploads a small server program over SSH. The server can be Linux or macOS.
 
 **Why it exists:** a hospital Wi-Fi blocked AI tools, every VPN and Wikipedia. Only SSH got through, and sshuttle was too slow to work with. The story: **[allwinpower.github.io/sshuttle2](https://allwinpower.github.io/sshuttle2/)** (also in [STORY.md](STORY.md)).
 
@@ -71,6 +71,15 @@ Reproduce on Linux, with Linux builds of the server and of each client: `scripts
 | nft | Linux | TCP, DNS | Linux containers, in CI |
 | tun | macOS, Linux | TCP, all UDP, DNS, IPv6 | live on a Mac; Linux containers, in CI |
 | SOCKS5 | macOS, Linux | TCP (CONNECT), UDP (ASSOCIATE) | in CI |
+
+Every mode works with either server:
+
+| Server | CPUs | Tested |
+|---|---|---|
+| Linux | x86_64, arm64 | in CI; rented servers |
+| macOS | Apple Silicon, Intel | Linux client in every mode, on a Mac (`scripts/mac-server-check.sh`) |
+
+A Mac server needs Remote Login on (System Settings → General → Sharing).
 
 ## Install
 
@@ -152,7 +161,7 @@ Point apps at it. Names are resolved on the server:
 curl --socks5-hostname 127.0.0.1:1080 https://ifconfig.me
 ```
 
-**First run.** The client copies a small static server binary (about 1.3 MB) to `~/.cache/sshuttle2/` on the server. Later runs reuse it until the version changes.
+**First run.** The client copies a small server binary (about 1.1–1.4 MB) for the server's system and CPU to `~/.cache/sshuttle2/` on the server. Later runs reuse it until the version changes.
 
 The client runs your normal `ssh`, so `~/.ssh/config`, keys, the agent and ProxyJump all work.
 
@@ -174,7 +183,7 @@ The client runs your normal `ssh`, so `~/.ssh/config`, keys, the agent and Proxy
 - The client starts your `ssh` and runs `sshuttle2-server` on the server. That one SSH session carries every connection.
 - Each connection gets its own lane with its own flow control, so one big download doesn't block the rest. Each lane's window grows while it limits the speed and shrinks when it only builds a queue, so a slow or distant server does not leave seconds of data queued in front of every other connection.
 - pf (macOS) or nftables (Linux) redirects TCP and DNS to the client. tun mode uses a virtual network device and a user-space TCP/IP stack ([ipstack](https://github.com/narrowlink/ipstack), vendored with a patch in [third_party/ipstack](third_party/ipstack/PATCHES.md)).
-- No Python anywhere: both ends are compiled Rust. The server is a static Linux binary, embedded in the client.
+- No Python anywhere: both ends are compiled Rust. The servers (static Linux, and macOS) are embedded in the client.
 - Wire format: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## Build
@@ -187,7 +196,7 @@ brew install zig cargo-zigbuild
 
 On Linux, install zig from your package manager or [ziglang.org](https://ziglang.org/download/), then `cargo install cargo-zigbuild`.
 
-Get the source, then build the Linux servers and a client that embeds them:
+Get the source, then build the servers (Linux and macOS, all with zig) and a client that embeds them:
 
 ```bash
 git clone https://github.com/allwinpower/sshuttle2
@@ -214,6 +223,8 @@ scripts/e2e.sh docker
 ```
 
 `scripts/e2e-tun.sh` and `scripts/e2e-nft.sh` test tun and nft mode in Linux containers. They need a static Linux client; each script's header says how to build it.
+
+`scripts/mac-server-check.sh` runs on a Mac with Docker: Linux clients in containers use the Mac as their server, in every mode. It starts its own sshd on 127.0.0.1 and needs no sudo.
 
 `scripts/bench.sh HOST` measures a real server in SOCKS5 mode. `scripts/mac-speed-check.sh HOST...` compares direct, sshuttle2 and sshuttle on a Mac.
 

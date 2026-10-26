@@ -8,8 +8,8 @@ Every line the remote script prints starts with a nonce the client picked for th
 
 | Step | Who | Line |
 |---|---|---|
-| 1 | remote | `<nonce> ARCH <x86_64\|aarch64\|…>` |
-| 2 | client | `<sha256-hex> <size>` (the server binary for that arch) |
+| 1 | remote | `<nonce> PLATFORM <uname -s> <x86_64\|aarch64\|…>`, e.g. `Linux x86_64`, `Darwin aarch64` |
+| 2 | client | `<sha256-hex> <size>` (the server binary for that OS and arch) |
 | 3a | remote | `<nonce> NEED` → client sends exactly `<size>` raw bytes |
 | 3b | remote | `<nonce> ERR <message>` → client gives up |
 | 4 | remote | `<nonce> GO <path>` and the script `exec`s the server |

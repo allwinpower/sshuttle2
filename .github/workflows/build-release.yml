@@ -63,8 +63,9 @@ jobs:
           path: notes.md
           if-no-files-found: error
 
-  # The static Linux servers, built once: every client of a version embeds
-  # the same two, so they all share one upload on the remote host.
+  # The servers (static Linux, and macOS, all cross-built with zig), built
+  # once: every client of a version embeds the same four, so they all share
+  # one upload on the remote host.
   servers:
     runs-on: ubuntu-latest
     steps:
