@@ -32,7 +32,7 @@ Reproduce on a Mac: `scripts/mac-speed-check.sh [user@]host...`. Measure a serve
 
 ### On rented servers
 
-Measured on 23 October 2026 with Ookla's speedtest: a client and a 1 vCPU / 2 GB server, both in Frankfurt (3 ms apart). Medians of 3 rounds. Every port there tops out at about 100 Mbit/s.
+Measured on 23 October 2026 with Ookla's speedtest and sshuttle2 0.1.0-rc.1: a client and a 1 vCPU / 2 GB server, both in Frankfurt (3 ms apart). Medians of 3 rounds. Every port there tops out at about 100 Mbit/s. A later single round, with the code of 0.1.1, got the same speeds.
 
 | | Download | Upload | Ping, downloading | Server CPU | Server RAM |
 |---|---:|---:|---:|---:|---:|
