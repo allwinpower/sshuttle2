@@ -44,7 +44,7 @@ Measured on 23 October 2026 with Ookla's speedtest: a client and a 1 vCPU / 2 GB
 
 - sshuttle2 fills the port in both directions, with half of sshuttle's server CPU and memory.
 - The price is delay while the link is full: 38–47 ms against sshuttle's 10 ms.
-- **Far apart, every tunnel stalls.** With the server in Washington, 88 ms away, sshuttle got 1.3 Mbit/s and sshuttle2 about 2 Mbit/s, while the same path does 100 Mbit/s without a tunnel. Fixing that is on the [TODO](TODO.md) list.
+- **Far apart, nft mode no longer stalls** (since 0.1.1). With the server in Washington, 88 ms away, a later single round got 95–98 Mbit/s down and 39–79 Mbit/s up through sshuttle2, with about 0.3 s of ping under load, where sshuttle got 2.4 Mbit/s. Before the fix, sshuttle2 got about 2 Mbit/s and Ookla stalled in every run. In that round tun mode still failed in the upload; 0.1.2 fixes that, and a 3-round rerun is on the [TODO](TODO.md) list.
 
 Run it again: the [Speed test](docs/SPEEDTEST.md) workflow (the owner starts it).
 
