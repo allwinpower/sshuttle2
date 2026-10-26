@@ -1,7 +1,7 @@
 # TODO
 
 - [ ] **Repeat the speed test on a quiet network, and update the numbers.**
-  The numbers in the README and the story are from the first run on 23 October 2026: single samples, hospital Wi-Fi, a 2 vCPU / 4 GB server.
+  The numbers in the story are from the first run on 23 October 2026: single samples on a shared Wi-Fi, a 2 vCPU / 4 GB server.
   A second run that evening, against a 2 vCPU / 4 GB and a 1 vCPU / 2 GB server, came out flat: every tunnel, sshuttle included, at 13–20 Mbit/s and about 200 ms. The Wi-Fi was crowded. What we measured then:
   - Plain SSH from the Mac (no tunnel software) got about 30 Mbit/s, while direct HTTPS got 88 Mbit/s. On that network, SSH itself was the limit.
   - The servers' own downloads from proof.ovh.net were 42 and 80 Mbit/s. The test file mixes the server's internet path into the result.

@@ -38,7 +38,7 @@ mbit() { awk '{printf "%.1f Mbit/s", $1 * 8 / 1e6}'; }
 ms() { awk '{printf "%.0f ms", $1 * 1000}'; }
 
 # A firewall that opens HTTPS to look inside fails the certificate check
-# (curl exit 60): that is how the hospital Wi-Fi blocks Wikipedia.
+# (curl exit 60): that is how some firewalls block Wikipedia.
 wikipedia() {
   local rc
   curl -s --max-time 15 -o /dev/null https://en.wikipedia.org/

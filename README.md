@@ -12,27 +12,11 @@ If you can log in to a server with SSH, sshuttle2 sends your traffic through it:
 
 ## Benchmarks
 
-Measured on a Mac on the hospital Wi-Fi from the story, 23 October 2026, through a cloud server with 2 vCPU and 4 GB.
+Measured with Ookla's speedtest on rented servers: a client in Frankfurt, and servers in Frankfurt (3 ms away) and Washington (88 ms away). Every port there tops out at about 100 Mbit/s. Every mode, both server sizes and all numbers: [docs/speed-results.md](docs/speed-results.md).
 
-| | Download | Page wait, idle | Page wait, during a download |
-|---|---:|---:|---:|
-| No tunnel (blocked sites stay blocked) | 91.9 Mbit/s | 128 ms | 65 ms |
-| sshuttle | 12.8 Mbit/s | 1817 ms | 2281 ms |
-| **sshuttle2**, pf mode (TCP + DNS) | **19.1 Mbit/s** | **131 ms** | 338 ms |
-| **sshuttle2**, tun mode (TCP + UDP + DNS) | 17.4 Mbit/s | 211 ms | **223 ms** |
+### Near: client and server in Frankfurt
 
-*Download: one 100 MB file. Page wait: time until `google.com/generate_204` sends its first byte.*
-
-- Pages answered about **14 times faster** than with sshuttle, and about 10 times faster while a download ran.
-- Downloads were about **1.5 times faster**. The bare Wi-Fi did 91.9 Mbit/s, so there is room left.
-
-These are single samples on a shared Wi-Fi. A second run that evening, with the Wi-Fi under heavy load, put every SSH tunnel, sshuttle included, at 13–20 Mbit/s and about 200 ms. Plain SSH itself got only about 30 Mbit/s then.
-
-Reproduce on a Mac: `scripts/mac-speed-check.sh [user@]host...`. Measure a server in SOCKS5 mode, against OpenSSH's own `ssh -D`: `scripts/bench.sh [user@]host`.
-
-### On rented servers
-
-Measured on 23 October 2026 with Ookla's speedtest and sshuttle2 0.1.0-rc.1: a client and a 1 vCPU / 2 GB server, both in Frankfurt (3 ms apart). Medians of 3 rounds. Every port there tops out at about 100 Mbit/s. A later single round, with the code of 0.1.1, got the same speeds.
+sshuttle2 0.1.0-rc.1, 23 October 2026, a 1 vCPU / 2 GB server. Medians of 3 rounds. A later single round, with the code of 0.1.1, got the same speeds.
 
 | | Download | Upload | Ping, downloading | Server CPU | Server RAM |
 |---|---:|---:|---:|---:|---:|
@@ -40,11 +24,24 @@ Measured on 23 October 2026 with Ookla's speedtest and sshuttle2 0.1.0-rc.1: a c
 | **sshuttle2**, nft mode (TCP + DNS) | **97 Mbit/s** | **97 Mbit/s** | 47 ms | **26 %** | **13 MB** |
 | **sshuttle2**, tun mode (TCP + UDP + DNS) | 96 Mbit/s | 95 Mbit/s | 38 ms | **26 %** | 14 MB |
 
-*Server CPU: average while Ookla ran, in % of one core. Server RAM: peak. Every mode, the 2 vCPU server and the far region: [docs/speed-results.md](docs/speed-results.md).*
+*Server CPU: average while Ookla ran, in % of one core. Server RAM: peak.*
 
 - sshuttle2 fills the port in both directions, with half of sshuttle's server CPU and memory.
 - The price is delay while the link is full: 38–47 ms against sshuttle's 10 ms.
-- **Far apart, nft mode no longer stalls** (since 0.1.1). With the server in Washington, 88 ms away, a later single round got 95–98 Mbit/s down and 39–79 Mbit/s up through sshuttle2, with about 0.3 s of ping under load, where sshuttle got 2.4 Mbit/s. Before the fix, sshuttle2 got about 2 Mbit/s and Ookla stalled in every run. In that round tun mode still failed in the upload; 0.1.2 fixes that, and a 3-round rerun is on the [TODO](TODO.md) list.
+
+### Far: client in Frankfurt, server in Washington
+
+sshuttle2 with the code of 0.1.1, 23 October 2026. One round on each server (1 vCPU / 2 GB and 2 vCPU / 4 GB), so single samples; the ranges span the two. Without a tunnel, this path does about 100 Mbit/s both ways.
+
+| | Download | Upload | Ping, downloading |
+|---|---:|---:|---:|
+| sshuttle | 2.4 Mbit/s | 2.4–2.5 Mbit/s | **182–183 ms** |
+| **sshuttle2**, nft mode (TCP + DNS) | **95–98 Mbit/s** | **39–79 Mbit/s** | 272–295 ms |
+| **sshuttle2**, tun mode (TCP + UDP + DNS) | **97 Mbit/s** | failed | 233–252 ms |
+
+- sshuttle2 downloads about **40 times faster** than sshuttle here.
+- Before 0.1.1, sshuttle2 stalled on this path too: about 2 Mbit/s, and Ookla gave up in every run. The window brake fixed that.
+- tun mode failed halfway through the upload on both servers. 0.1.2 fixes that, and a 3-round rerun is on the [TODO](TODO.md) list.
 
 Run it again: the [Speed test](docs/SPEEDTEST.md) workflow (the owner starts it).
 
