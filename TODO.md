@@ -22,19 +22,15 @@
   Likely cause: a window grows past its starting 256 KiB only while a quarter of it drains in under half the smallest RTT seen ([docs/PROTOCOL.md](docs/PROTOCOL.md), section 3). Once the RTT under load is more than twice the idle one, as on a busy Wi-Fi, one lane stays at 256 KiB per round trip.
 
 - [ ] **Confirm the far-path fix on real servers.** With the server 88 ms away, sshuttle2 got 1.8–2.6 Mbit/s and Ookla stalled in every run ([docs/speed-results.md](docs/speed-results.md)). The single SSH connection got only a few Mbit/s on that path (sshuttle: 1.3–1.7 Mbit/s), and windows never shrank below 256 KiB, so Ookla's 8 connections queued 5–7 s. The brake (PROTOCOL.md, section 3) bounds that queue: in an emulated 88 ms / 3 Mbit/s path, ping under load fell from 5.1 s to 0.29 s.
-  Speed test with the brake ([run 40032571340](https://github.com/allwinpower/sshuttle2/actions/runs/40032571340), 1 round, 23 October 2026), far rows:
+  The 1-round run with the brake ([run 40032571340](https://github.com/allwinpower/sshuttle2/actions/runs/40032571340), 23 October 2026) is in [docs/speed-results.md](docs/speed-results.md#after-the-far-path-fix-1-round). nft no longer stalls: 95–98 Mbit/s down and 39–79 Mbit/s up. tun failed halfway through the upload, because its TCP stack let an app upload far ahead of the tunnel; 0.1.2 fixes that with the receive window patch (third_party/ipstack/PATCHES.md).
+  To do: rerun with 3 rounds on 0.1.2, then update docs/speed-results.md and the README's far table. The first try ([run 40043580748](https://github.com/allwinpower/sshuttle2/actions/runs/40043580748)) could not create its VMs: the VM provider pauses new VMs after many create/delete runs. Earliest retry: 31 October 2026.
 
-  | | 1 vCPU server | 2 vCPU server |
-  |---|---|---|
-  | sshuttle2 nft | 95 down / 79 up Mbit/s, ping 272 / 292 ms | 98 down / 39 up Mbit/s, ping 295 / 382 ms |
-  | sshuttle2 tun | 97 down, ping 233 ms; failed in the upload at 53 % | 97 down, ping 252 ms; failed in the upload at 51 % |
-  | sshuttle | 2.4 / 2.5 Mbit/s | 2.4 / 2.4 Mbit/s |
-
-  nft no longer stalls. The path was better than in the 3-round run (sshuttle got 2.4 Mbit/s there, against 1.3–1.7). tun failed in the upload because its TCP stack let an app upload far ahead of the tunnel; that is fixed in the receive window patch (third_party/ipstack/PATCHES.md). To do: rerun with 3 rounds after that fix, and update docs/speed-results.md.
-
-
-- [ ] **Try mimalloc in the server too, after 0.1.0.** The uploaded server is also built with musl, so mimalloc could speed it up as well, as it did the Linux client (README, "Linux client and mimalloc"). It would add about 10% to the 1.3 MB that is uploaded on first use, so it is a separate decision.
+- [ ] **Try mimalloc in the server too.** The uploaded server is also built with musl, so mimalloc could speed it up as well, as it did the Linux client (README, "Linux client and mimalloc"). It would add about 10% to the 1.3 MB that is uploaded on first use, so it is a separate decision.
   To measure, run `scripts/alloc-bench.sh` once per server build, with the same client.
 
 - [ ] **apt and dnf repositories, when users ask for them.** The `.deb` and `.rpm` from a release install with `sudo apt install ./file.deb` or `sudo dnf install ./file.rpm`, but they never update, because apt and dnf do not know where they came from. A package repository fixes that: users add it once, then `sudo apt install sshuttle2`, and `apt upgrade` or `dnf upgrade` brings each new release.
   The cost is a GPG signing key to keep safe and renew, hosting (for example a separate repo served by GitHub Pages), and a publish step in `release.yml` on every release. Build the APT repository with [aptly](https://www.aptly.info/doc/aptly/publish/) and the RPM one with `createrepo_c`, and sign both. That is about 1–2 days to set up, then about 1–2 hours a month. Start when about 5 users ask. Until then, Homebrew on Linux (and the AUR, once it takes new accounts) gives automatic updates.
+
+- [ ] **AUR package `sshuttle2-bin`, once the AUR takes new accounts.** The README promises it. The package and its workflow are ready (`packaging/aur`, `.github/workflows/aur.yml`), and every release build already checks it on Arch Linux. Missing: an AUR account, an SSH key in it, the `AUR_SSH_KEY` secret, then `gh workflow run aur.yml -f version=X` ([docs/RELEASING.md](docs/RELEASING.md)) and an AUR line in the README's install section.
+
+- [ ] **Story page on sshuttle2.openrepos.org, once the claim merges.** The README links to that name, but the claim ([openrepos-org/register#26](https://github.com/openrepos-org/register/pull/26)) is still open. Until it merges, the name only redirects to openrepos.org, and the story is at allwinpower.github.io/sshuttle2. After it merges: `gh api -X PUT repos/allwinpower/sshuttle2/pages -f cname=sshuttle2.openrepos.org`, then `-F https_enforced=true` once the certificate exists. Not before: GitHub would send github.io visitors to a name that does not serve the story yet.
