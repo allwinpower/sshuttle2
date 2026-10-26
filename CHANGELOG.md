@@ -2,6 +2,10 @@
 
 What changed in each release of sshuttle2. A release's section here becomes its GitHub Release notes ([docs/RELEASING.md](docs/RELEASING.md)).
 
+## [Unreleased]
+
+- **macOS servers.** The server can now be a Mac (Apple Silicon or Intel) with Remote Login on, not only Linux. The client picks the server binary by the remote host's system and CPU. Each client is about 2.2 MB larger, as it carries the two macOS servers too.
+
 ## [0.1.2] - 2026-10-24
 
 - **tun mode: uploads wait for the tunnel.** The built-in TCP stack acknowledged every byte an app sent at once and queued it unread. So an upload through a slower tunnel looked sent long before it was, Ookla's speedtest gave up waiting for the server's answer (it failed in the upload with the server far away), and the client could grow by gigabytes. Now the receive window closes once 256 KiB of a connection wait unread, and reopens as the tunnel takes them.

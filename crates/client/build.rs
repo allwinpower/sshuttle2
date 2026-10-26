@@ -1,6 +1,7 @@
-//! Embeds the Linux server binaries, when they have been built, so the client
-//! can upload the right one. `cargo xtask dist` builds them first; a plain
-//! `cargo build` embeds nothing and the client needs `--server-bin`.
+//! Embeds the server binaries (Linux and macOS), when they have been built,
+//! so the client can upload the right one. `cargo xtask dist` builds them
+//! first; a plain `cargo build` embeds nothing and the client needs
+//! `--server-bin`.
 
 use std::path::PathBuf;
 
@@ -11,11 +12,16 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|| manifest.join("../../dist/server"));
     let mut out = String::from("pub static SERVERS: &[(&str, &[u8])] = &[\n");
-    for arch in ["x86_64", "aarch64"] {
-        let path = dir.join(format!("sshuttle2-server-{arch}"));
+    for platform in [
+        "linux-x86_64",
+        "linux-aarch64",
+        "macos-x86_64",
+        "macos-aarch64",
+    ] {
+        let path = dir.join(format!("sshuttle2-server-{platform}"));
         println!("cargo:rerun-if-changed={}", path.display());
         if let Ok(path) = path.canonicalize() {
-            out.push_str(&format!("    ({arch:?}, include_bytes!({path:?})),\n"));
+            out.push_str(&format!("    ({platform:?}, include_bytes!({path:?})),\n"));
         }
     }
     out.push_str("];\n");

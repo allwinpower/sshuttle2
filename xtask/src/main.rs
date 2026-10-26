@@ -1,5 +1,5 @@
-//! `cargo xtask dist`: builds the static Linux servers (with cargo-zigbuild),
-//! then a release client that embeds them.
+//! `cargo xtask dist`: builds the servers (static Linux and macOS, all with
+//! cargo-zigbuild), then a release client that embeds them.
 //! `cargo xtask servers`: only the servers, into dist/server/.
 //! `cargo xtask client TARGET`: a release client for TARGET that embeds the
 //! servers already in dist/server/. The release workflow builds the servers
@@ -16,9 +16,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 
-const SERVER_TARGETS: [(&str, &str); 2] = [
-    ("x86_64", "x86_64-unknown-linux-musl"),
-    ("aarch64", "aarch64-unknown-linux-musl"),
+/// Each server the client embeds: its platform name (as the bootstrap
+/// script reports the remote host) and its target.
+const SERVER_TARGETS: [(&str, &str); 4] = [
+    ("linux-x86_64", "x86_64-unknown-linux-musl"),
+    ("linux-aarch64", "aarch64-unknown-linux-musl"),
+    ("macos-x86_64", "x86_64-apple-darwin"),
+    ("macos-aarch64", "aarch64-apple-darwin"),
 ];
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -59,7 +63,7 @@ fn run(cmd: &mut Command) -> Result<()> {
 fn servers(root: &Path) -> Result<()> {
     let out = root.join("dist/server");
     std::fs::create_dir_all(&out)?;
-    for (arch, target) in SERVER_TARGETS {
+    for (platform, target) in SERVER_TARGETS {
         run(cargo()
             .current_dir(root)
             .args([
@@ -75,7 +79,7 @@ fn servers(root: &Path) -> Result<()> {
             .join("target")
             .join(target)
             .join("release-server/sshuttle2-server");
-        let dest = out.join(format!("sshuttle2-server-{arch}"));
+        let dest = out.join(format!("sshuttle2-server-{platform}"));
         std::fs::copy(&built, &dest)
             .with_context(|| format!("copying {} to {}", built.display(), dest.display()))?;
         eprintln!(
@@ -111,10 +115,10 @@ fn client(root: &Path) -> Result<()> {
 
 fn client_for(root: &Path, target: &str) -> Result<()> {
     // build.rs embeds whatever servers it finds, so a missing one would
-    // ship a client that cannot start on that architecture.
+    // ship a client that cannot start on that platform.
     let dir = root.join("dist/server");
-    for (arch, _) in SERVER_TARGETS {
-        let path = dir.join(format!("sshuttle2-server-{arch}"));
+    for (platform, _) in SERVER_TARGETS {
+        let path = dir.join(format!("sshuttle2-server-{platform}"));
         if !path.is_file() {
             bail!("{} is missing; run `cargo xtask servers`", path.display());
         }

@@ -44,7 +44,7 @@ jobs:
             --layout scripts/speedtest/testdata/layout.json | diff scripts/speedtest/testdata/results.md -
       - run: cargo clippy --workspace --all-targets
       - run: cargo test --workspace
-      # End to end: the static Linux servers, a client embedding them, then
+      # End to end: the servers (Linux and macOS), a client embedding them, then
       # real transfers through a local server and over ssh into a container.
       - uses: mlugg/setup-zig@v2
       - uses: taiki-e/install-action@v2

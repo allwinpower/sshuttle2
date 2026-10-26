@@ -1,7 +1,7 @@
 //! Getting the server running on the remote host over the one ssh session.
 //!
 //! The remote command is a short POSIX sh script. It reports the machine's
-//! architecture, looks for a cached server binary matching the hash the
+//! OS and architecture, looks for a cached server binary matching the hash the
 //! client sends, and asks for an upload only on a miss. Each step waits for
 //! the other side, never pipelining: `head -c` may read past its count on a
 //! pipe, so the client sends nothing the script has not asked for.
@@ -32,7 +32,7 @@ U=$(id -u);
 say() { printf "%s %s\n" "$N" "$*"; };
 A=$(uname -m);
 case "$A" in amd64) A=x86_64 ;; arm64|armv8*) A=aarch64 ;; esac;
-say ARCH "$A";
+say PLATFORM "$(uname -s)" "$A";
 read H S || exit 1;
 F="sshuttle2-server-$H";
 set -- "${XDG_CACHE_HOME:-$HOME/.cache}/sshuttle2" "/tmp/sshuttle2-$U" "/dev/shm/sshuttle2-$U";
@@ -42,7 +42,7 @@ ok() {
   mkdir -p "$1" 2>/dev/null || return 1;
   chmod 700 "$1" 2>/dev/null || return 1;
   [ -w "$1" ] || return 1;
-  case "$1" in /tmp/*|/dev/shm/*) [ "$(stat -c %u "$1" 2>/dev/null)" = "$U" ] || return 1 ;; esac;
+  case "$1" in /tmp/*|/dev/shm/*) [ "$(stat -c %u "$1" 2>/dev/null || stat -f %u "$1" 2>/dev/null)" = "$U" ] || return 1 ;; esac;
 };
 B=;
 for D in "$@"; do
@@ -95,12 +95,30 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// Architectures with a server binary built into this client.
-pub fn embedded_arches() -> Vec<&'static str> {
+/// Platforms (`linux-x86_64`, `macos-aarch64`, ...) with a server binary
+/// built into this client.
+pub fn embedded_platforms() -> Vec<&'static str> {
     embedded::SERVERS.iter().map(|(a, _)| *a).collect()
 }
 
-fn server_binary<'a>(arch: &str, override_path: Option<&Path>) -> Result<Cow<'a, [u8]>> {
+/// The embedded-server name for the script's `PLATFORM` line: `uname -s`,
+/// then the architecture the script has already normalized. Other systems
+/// keep their own name, so the error lists what this build has, and
+/// `--server-bin` can still bring a server for them.
+fn platform(line: &str) -> Result<String> {
+    let (os, arch) = line
+        .trim()
+        .split_once(' ')
+        .with_context(|| format!("unexpected platform from remote: {line:?}"))?;
+    let os = match os {
+        "Linux" => "linux".to_string(),
+        "Darwin" => "macos".to_string(),
+        other => other.to_lowercase(),
+    };
+    Ok(format!("{os}-{arch}"))
+}
+
+fn server_binary<'a>(platform: &str, override_path: Option<&Path>) -> Result<Cow<'a, [u8]>> {
     if let Some(p) = override_path {
         return Ok(Cow::Owned(
             std::fs::read(p).with_context(|| format!("reading {}", p.display()))?,
@@ -108,18 +126,18 @@ fn server_binary<'a>(arch: &str, override_path: Option<&Path>) -> Result<Cow<'a,
     }
     embedded::SERVERS
         .iter()
-        .find(|(a, _)| *a == arch)
+        .find(|(p, _)| *p == platform)
         .map(|(_, b)| Cow::Borrowed(*b))
         .ok_or_else(|| {
-            let have = embedded_arches();
+            let have = embedded_platforms();
             if have.is_empty() {
                 anyhow!(
                     "this build carries no server binaries; build with `cargo xtask dist` \
-                     or pass --server-bin PATH (a Linux build of sshuttle2-server)"
+                     or pass --server-bin PATH (a build of sshuttle2-server for the remote host)"
                 )
             } else {
                 anyhow!(
-                    "remote host is {arch}; this build has servers for {}",
+                    "remote host is {platform}; this build has servers for {}",
                     have.join(", ")
                 )
             }
@@ -141,14 +159,13 @@ where
     W: AsyncWrite + Unpin,
 {
     let line = read_tagged_line(rd, buf, nonce).await?;
-    let arch = line
-        .strip_prefix("ARCH ")
-        .with_context(|| format!("unexpected line from remote: {line:?}"))?
-        .trim()
-        .to_string();
-    let binary = server_binary(&arch, override_path)?;
+    let platform = platform(
+        line.strip_prefix("PLATFORM ")
+            .with_context(|| format!("unexpected line from remote: {line:?}"))?,
+    )?;
+    let binary = server_binary(&platform, override_path)?;
     let hash = sha256_hex(&binary);
-    debug!(%arch, %hash, "remote architecture");
+    debug!(%platform, %hash, "remote platform");
     wr.write_all(format!("{hash} {}\n", binary.len()).as_bytes())
         .await?;
     wr.flush().await?;
@@ -177,6 +194,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn platform_names() {
+        assert_eq!(platform("Linux x86_64").unwrap(), "linux-x86_64");
+        assert_eq!(platform("Darwin aarch64\n").unwrap(), "macos-aarch64");
+        assert_eq!(platform("FreeBSD x86_64").unwrap(), "freebsd-x86_64");
+        assert!(platform("Linux").is_err());
+    }
 
     #[test]
     fn script_is_one_safe_line() {
