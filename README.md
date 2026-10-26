@@ -8,7 +8,7 @@ A VPN over a plain SSH login. Written in Rust, inspired by [sshuttle](https://gi
 
 If you can log in to a server with SSH, sshuttle2 sends your traffic through it: TCP and DNS, and in tun mode all UDP too. You install nothing on the server and need no root there. On first run the client uploads a small server program over SSH.
 
-**Why it exists:** a hospital Wi-Fi blocked AI tools, every VPN and Wikipedia. Only SSH got through, and sshuttle was too slow to work with. The story: **[sshuttle2.openrepos.org](https://sshuttle2.openrepos.org/)** (also in [STORY.md](STORY.md)).
+**Why it exists:** a hospital Wi-Fi blocked AI tools, every VPN and Wikipedia. Only SSH got through, and sshuttle was too slow to work with. The story: **[allwinpower.github.io/sshuttle2](https://allwinpower.github.io/sshuttle2/)** (also in [STORY.md](STORY.md)).
 
 ## Benchmarks
 
