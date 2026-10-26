@@ -2,7 +2,7 @@
 
 *Or: how a hospital firewall made me write a VPN.*
 
-Also on the web: [sshuttle2.openrepos.org](https://sshuttle2.openrepos.org/). Source: [github.com/allwinpower/sshuttle2](https://github.com/allwinpower/sshuttle2).
+Also on the web: [allwinpower.github.io/sshuttle2](https://allwinpower.github.io/sshuttle2/). Source: [github.com/allwinpower/sshuttle2](https://github.com/allwinpower/sshuttle2).
 
 sshuttle2 is a full Rust implementation inspired by [sshuttle](https://github.com/sshuttle/sshuttle).
 
