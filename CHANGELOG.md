@@ -2,7 +2,7 @@
 
 What changed in each release of sshuttle2. A release's section here becomes its GitHub Release notes ([docs/RELEASING.md](docs/RELEASING.md)).
 
-## [Unreleased]
+## [0.2.0] - 2026-10-26
 
 - **macOS servers.** The server can now be a Mac (Apple Silicon or Intel) with Remote Login on, not only Linux. The client picks the server binary by the remote host's system and CPU. Each client is about 2.2 MB larger, as it carries the two macOS servers too.
 

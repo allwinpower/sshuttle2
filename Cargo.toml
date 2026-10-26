@@ -7,7 +7,7 @@ default-members = ["crates/core", "crates/server", "crates/client"]
 exclude = ["third_party"]
 
 [workspace.package]
-version = "0.1.2"
+version = "0.2.0-rc.1"
 edition = "2024"
 license = "LGPL-2.1-or-later"
 repository = "https://github.com/allwinpower/sshuttle2"
