@@ -4,6 +4,8 @@ All notable changes to sshuttle2. The format is based on [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-27
+
 ### Added
 
 - `ssh://` destinations, such as `sshuttle2 ssh://user@host:2222`.
@@ -61,7 +63,8 @@ First release.
 - Homebrew: `brew install allwinpower/tap/sshuttle2`.
 - The Linux client uses mimalloc instead of musl's allocator: half the CPU and 17–25% more throughput when the CPU is the limit.
 
-[Unreleased]: https://github.com/allwinpower/sshuttle2/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/allwinpower/sshuttle2/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/allwinpower/sshuttle2/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/allwinpower/sshuttle2/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/allwinpower/sshuttle2/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/allwinpower/sshuttle2/compare/v0.1.0...v0.1.1
