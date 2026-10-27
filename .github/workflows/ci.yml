@@ -31,11 +31,11 @@ jobs:
     if: ${{ !cancelled() && (github.event_name == 'push' || needs.release-files.outputs.code != 'false') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # rustup reads rust-toolchain.toml on the first cargo call; this makes
       # the install its own step so its time does not hide inside "fmt".
       - run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo fmt --all --check
       - run: shellcheck packaging/*.sh packaging/*/*.sh scripts/speedtest/*.sh
       # The speed test report, against a saved run.
@@ -46,8 +46,8 @@ jobs:
       - run: cargo test --workspace
       # End to end: the servers (Linux and macOS), a client embedding them, then
       # real transfers through a local server and over ssh into a container.
-      - uses: mlugg/setup-zig@v2
-      - uses: taiki-e/install-action@v2
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+      - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2
         with:
           tool: cargo-zigbuild
       - run: cargo xtask dist
@@ -66,25 +66,56 @@ jobs:
       # The speed test's client side, every mode, with a stand-in for
       # Ookla's CLI (the real test: .github/workflows/speedtest.yml).
       - run: scripts/speedtest/dry-run.sh
-      # No macOS runner here (release-build below has one, only when the
-      # release build changes). Checking (not linking) needs no macOS SDK,
-      # so this still catches code that only compiles on Linux. macOS tests
-      # run on the developer's Mac.
-      - run: rustup target add aarch64-apple-darwin
-      - run: cargo clippy --workspace --all-targets --target aarch64-apple-darwin
+
+  macos:
+    # Runs when linux does. Lints and unit tests only: the end-to-end tests
+    # need Docker, which macOS runners lack.
+    needs: release-files
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.release-files.outputs.code != 'false') }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - run: cargo clippy --workspace --all-targets
+      - run: cargo test --workspace
+
+  msrv:
+    # The oldest Rust the workspace supports: rust-version in Cargo.toml.
+    needs: release-files
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.release-files.outputs.code != 'false') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: |
+          msrv=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)
+          rustup toolchain install "$msrv" --profile minimal
+          cargo +"$msrv" check --workspace
+
+  deny:
+    # Advisories, licenses and sources of every dependency; see deny.toml.
+    needs: release-files
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.release-files.outputs.code != 'false') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        with:
+          command: check advisories licenses sources
 
   release-files:
     # What this pull request touches. changed: the release build, so
     # release-build runs, as it needs macOS and arm64 runners. code:
-    # anything but docs, so linux runs; false only when every file is on
-    # the short list below (testdata .md files are not: linux diffs them).
+    # anything but docs, so linux, macos, msrv and deny run; false only when
+    # every file is on the short list below (testdata .md files are not:
+    # linux diffs them).
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       changed: ${{ steps.diff.outputs.changed }}
       code: ${{ steps.diff.outputs.code }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 2
       - id: diff
@@ -115,26 +146,37 @@ jobs:
     # The one job everything else hangs off, and the check branch protection
     # requires: GitHub auto-merge waits for it. A skipped job reports
     # success, so the gate checks each result itself.
-    needs: [linux, release-files, release-build]
+    needs: [linux, macos, msrv, deny, release-files, release-build]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Fail if anything upstream did not succeed
+        env:
+          FILES: ${{ needs.release-files.result }}
+          BUILD: ${{ needs.release-build.result }}
+          CODE: ${{ needs.release-files.outputs.code }}
+          CHECKS: >-
+            linux=${{ needs.linux.result }}
+            macos=${{ needs.macos.result }}
+            msrv=${{ needs.msrv.result }}
+            deny=${{ needs.deny.result }}
         run: |
           set -euo pipefail
-          echo "linux=${{ needs.linux.result }}"
-          echo "release-files=${{ needs.release-files.result }}"
-          echo "release-build=${{ needs.release-build.result }}"
-          echo "code=${{ needs.release-files.outputs.code }}"
-          # linux may skip only a pull request that release-files saw
-          # touch nothing but docs.
-          case "${{ needs.linux.result }}/${{ needs.release-files.result }}/${{ needs.release-files.outputs.code }}" in
-            success/*/* | skipped/success/false) ;;
-            *) exit 1 ;;
-          esac
+          echo "release-files=$FILES"
+          echo "release-build=$BUILD"
+          echo "code=$CODE"
+          # linux, macos, msrv and deny may skip only a pull request that
+          # release-files saw touch nothing but docs.
+          for job in $CHECKS; do
+            echo "$job"
+            case "${job#*=}/$FILES/$CODE" in
+              success/*/* | skipped/success/false) ;;
+              *) exit 1 ;;
+            esac
+          done
           # release-files runs for pull requests only; release-build only
           # when it says so.
-          case "${{ needs.release-files.result }}/${{ needs.release-build.result }}" in
+          case "$FILES/$BUILD" in
             success/success | success/skipped | skipped/skipped) ;;
             *) exit 1 ;;
           esac

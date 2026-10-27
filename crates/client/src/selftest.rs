@@ -21,6 +21,7 @@ fn wait_readable(fd: &OwnedFd, ms: i32) -> bool {
         events: libc::POLLIN,
         revents: 0,
     };
+    // SAFETY: one pollfd, `p`, which outlives the call.
     unsafe { libc::poll(&mut p, 1, ms) > 0 }
 }
 
@@ -32,6 +33,7 @@ fn read_matching(dev: &OwnedFd, buf: &mut [u8], off: usize, proto: u8) -> Option
         if !wait_readable(dev, 200) {
             continue;
         }
+        // SAFETY: the kernel writes at most `buf.len()` bytes into `buf`.
         let n = unsafe { libc::read(dev.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) };
         if n <= 0 {
             continue;
@@ -111,6 +113,7 @@ pub fn run() -> Result<()> {
         vec![("no prefix", reply.clone())]
     };
     for (name, framed) in variants {
+        // SAFETY: the kernel reads at most `framed.len()` bytes from `framed`.
         let w = unsafe { libc::write(dev.as_raw_fd(), framed.as_ptr().cast(), framed.len()) };
         let werr = if w < 0 {
             format!(" ({})", std::io::Error::last_os_error())

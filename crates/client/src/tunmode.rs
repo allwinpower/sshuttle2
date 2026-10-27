@@ -76,7 +76,7 @@ impl Stats {
     }
 }
 
-/// One-line summary of an IPv4 TCP packet.
+/// One-line summary of an IPv4 TCP or UDP packet.
 pub fn describe(pkt: &[u8]) -> Option<String> {
     if pkt.len() >= 28 && pkt[0] >> 4 == 4 && pkt[9] == 17 {
         let ihl = (pkt[0] & 0x0f) as usize * 4;

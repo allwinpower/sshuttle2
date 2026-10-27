@@ -115,6 +115,8 @@ mod darwin {
     }
 
     fn ioctl<const N: usize>(fd: &OwnedFd, req: u64, buf: &mut Buf<N>) -> std::io::Result<()> {
+        // SAFETY: each caller pairs `req` with a `Buf` of the size encoded in
+        // it, so the kernel stays within `buf`.
         let r = unsafe { libc::ioctl(fd.as_raw_fd(), req as libc::c_ulong, buf.0.as_mut_ptr()) };
         if r < 0 {
             Err(std::io::Error::last_os_error())
@@ -160,11 +162,14 @@ mod darwin {
 
     impl Pf {
         pub fn open(anchor: String) -> Result<Pf> {
+            // SAFETY: a NUL-terminated literal path.
             let fd = unsafe { libc::open(c"/dev/pf".as_ptr(), libc::O_RDWR) };
             if fd < 0 {
                 return Err(std::io::Error::last_os_error()).context("opening /dev/pf");
             }
             Ok(Pf {
+                // SAFETY: open just returned this descriptor; nothing else
+                // owns it.
                 dev: unsafe { OwnedFd::from_raw_fd(fd) },
                 anchor,
                 tokens: Vec::new(),

@@ -216,6 +216,7 @@ fn main() -> ExitCode {
 }
 
 fn cleanup() -> ExitCode {
+    // SAFETY: geteuid has no preconditions and cannot fail.
     if unsafe { libc::geteuid() } != 0 {
         // Re-run ourselves as root.
         let exe = std::env::current_exe().expect("current executable");
@@ -563,6 +564,7 @@ async fn report(mux: Mux) {
 /// macOS starts processes with a soft limit of 256 open files, which a busy
 /// browser exhausts quickly.
 fn raise_fd_limit() {
+    // SAFETY: getrlimit and setrlimit only touch `lim`, which outlives both.
     unsafe {
         let mut lim = libc::rlimit {
             rlim_cur: 0,
