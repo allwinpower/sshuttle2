@@ -1,41 +1,28 @@
 # Why sshuttle2 exists
 
-*Or: how a hospital firewall made me write a VPN.*
+A hospital's Wi-Fi blocked everything except SSH. To get my work done, I first had to fix my internet connection. This is why I wrote sshuttle2, a Rust implementation of the idea behind [sshuttle](https://github.com/sshuttle/sshuttle).
 
-Also on the web: [allwinpower.github.io/sshuttle2](https://allwinpower.github.io/sshuttle2/). Source: [github.com/allwinpower/sshuttle2](https://github.com/allwinpower/sshuttle2).
+Also on the web: [allwinpower.github.io/sshuttle2](https://allwinpower.github.io/sshuttle2/).
 
-sshuttle2 is a full Rust implementation inspired by [sshuttle](https://github.com/sshuttle/sshuttle).
+## The network
 
-## Admitted
-
-I ended up in a hospital. The staff were kind, the bed was fine, and I still had work to do. I had my Mac and my phone with me, and the hospital has patient Wi-Fi. Great, I thought, and opened the laptop.
-
-## Symptoms
-
-The patient Wi-Fi sits behind a Fortinet firewall, and that firewall has opinions. The Mac and the phone got the same treatment. The screenshots are from the phone (Brave on Android).
+I was in a hospital for a while, with my Mac, my phone and work to do. The patient Wi-Fi runs through a Fortinet firewall that inspects HTTPS. The screenshots are from the phone (Brave on Android); the Mac got the same errors.
 
 | claude.ai | chatgpt.com | en.wikipedia.org |
 |---|---|---|
 | ![claude.ai blocked by Fortinet](docs/story/img/blocked-claude.png) | ![chatgpt.com blocked by Fortinet](docs/story/img/blocked-chatgpt.png) | ![Wikipedia blocked by Fortinet](docs/story/img/blocked-wikipedia.png) |
 
-Three sites, three identical refusals.
-
 What the firewall blocked, on both devices:
 
-- **Claude**, **ChatGPT** and every other AI tool I tried.
-- **Every VPN**: WireGuard, Shadowsocks, Mullvad, and the rest.
-- **Wikipedia.** The free encyclopedia. In a building full of people who want to look up their own diagnosis.
+- Claude, ChatGPT and every other AI tool I tried.
+- Every VPN I tried: WireGuard, Shadowsocks, Mullvad.
+- Wikipedia.
 
-The error is `NET::ERR_CERT_AUTHORITY_INVALID`. The firewall opens every HTTPS connection to look inside and signs the result with its own certificate. My devices have never met that certificate, so they refuse the page.
+The error is `NET::ERR_CERT_AUTHORITY_INVALID`. The firewall decrypts each HTTPS connection and signs it again with its own certificate, which my devices do not trust. Brave suggests disabling Fortinet or connecting to another network. A patient can do neither.
 
-Brave offers two fixes:
+## What got through
 
-1. *"Try uninstalling or disabling Fortinet."* Sure. I'll walk to the hospital's server room in my patient gown and ask nicely.
-2. *"Try connecting to another network."* Patients don't get to pick the network.
-
-## Examination
-
-I tried everything. One thing got through: **SSH**. Maybe the IT team needs it, maybe nobody thought about it. Either way, I could log in to my own server from the Mac.
+SSH on port 22 was not blocked, so I could log in to my own server from the Mac.
 
 ```
           Fortinet
@@ -48,58 +35,50 @@ I tried everything. One thing got through: **SSH**. Maybe the IT team needs it, 
  [Mac] == ssh :22 ==> [my server] --> internet
 ```
 
-If you can SSH, you can tunnel. That is the idea behind [sshuttle](https://github.com/sshuttle/sshuttle): a VPN over a plain SSH login, with nothing to install on the server.
+A network that allows SSH allows a tunnel. That is the idea behind [sshuttle](https://github.com/sshuttle/sshuttle): a VPN over a plain SSH login, with nothing to install on the server.
 
-## First treatment: sshuttle
+## sshuttle
 
-sshuttle worked on the Mac. Everything got through. Slowly.
+sshuttle worked on the Mac, but slowly:
 
-- Downloads ran at **12.8 Mbit/s**. The same Wi-Fi does 91.9 Mbit/s to sites it doesn't block.
-- A tiny page request waited **1.8 seconds**. With a download running next to it: **2.3 seconds**.
+- Downloads ran at 12.8 Mbit/s, on a Wi-Fi that does 91.9 Mbit/s to sites it does not block.
+- A small page request took 1.8 seconds, and 2.3 seconds while a download was running.
 
-Every click felt like waiting for the doctor's round.
+sshuttle relays every connection through one single-threaded Python process on the server, and all packets share one queue. It has served people well for years, but it was too slow for a working day.
 
-The cause is not a bug. sshuttle sends every byte through one single-threaded Python process on the server. On small cloud servers that caps it at about 30–45 Mbit/s, and every packet waits its turn in the same queue. sshuttle is a great idea and has helped people for years. It just could not carry my workday.
+## sshuttle2
 
-## Surgery
+So I wrote sshuttle2 in Rust. Both ends are new code, and the idea is the same: the server needs nothing but an SSH login. On first run, the client uploads a small server binary (about 1.3 MB) over SSH and reuses it after that. It runs on macOS and Linux.
 
-So before I could do my actual work, I had to fix my internet.
+What is different:
 
-I wrote sshuttle2, a full Rust implementation inspired by [sshuttle](https://github.com/sshuttle/sshuttle). Both ends are new code, and it keeps the good idea: you need nothing on the server except an SSH login. It runs on the Mac (and on Linux). On first run the client uploads a small server program (about 1.3 MB) through SSH and reuses it after that.
+- **Rust at both ends.** No Python in the data path.
+- **One SSH session, one channel per connection.** Each channel has its own flow control, so a large download does not hold up other connections.
+- **Self-sizing windows.** A channel's window grows while it limits throughput and shrinks when it only adds queueing delay.
+- **TCP, DNS and UDP.** In tun mode, video calls, QUIC and games go through the tunnel too.
+- **Clean exit.** Firewall rules and routes are removed on exit, also after a crash.
 
-What changed:
+## Results
 
-- **No Python in the data path.** Both ends are compiled Rust.
-- **Many connections, one SSH session, separate lanes.** Each connection has its own flow control, so one big download doesn't block everything else.
-- **Windows that size themselves.** Each lane grows while it limits the speed and shrinks when it only builds a queue. One download can use the link, and a page doesn't wait behind it.
-- **TCP, DNS, and all UDP.** In tun mode video calls, QUIC and games go through the tunnel too.
-- **Clean exit.** Firewall rules and routes are removed when it stops, even after a crash.
-
-## Vitals after surgery
-
-Measured on the Mac. Same Wi-Fi, same server (2 vCPU, 4 GB), same day (23 October 2026). Single samples. A repeat with medians, on rented servers: [speed test results](docs/speed-results.md).
+Measured on the Mac, with the same Wi-Fi and the same server (2 vCPU, 4 GB) on the same day. Single samples. Repeated measurements on rented servers: [benchmarks](docs/benchmarks.md).
 
 | | Download | Page wait, idle | Page wait, during a download |
 |---|---:|---:|---:|
 | No tunnel (blocked sites stay blocked) | 91.9 Mbit/s | 128 ms | 65 ms |
 | sshuttle | 12.8 Mbit/s | 1817 ms | 2281 ms |
-| **sshuttle2**, pf mode (TCP + DNS) | **19.1 Mbit/s** | **131 ms** | 338 ms |
-| **sshuttle2**, tun mode (TCP + UDP + DNS) | 17.4 Mbit/s | 211 ms | **223 ms** |
+| sshuttle2, pf mode (TCP + DNS) | 19.1 Mbit/s | 131 ms | 338 ms |
+| sshuttle2, tun mode (TCP + UDP + DNS) | 17.4 Mbit/s | 211 ms | 223 ms |
 
-*Download: one 100 MB file. Page wait: time until `google.com/generate_204` sends its first byte.*
+Download: one 100 MB file. Page wait: time until `google.com/generate_204` sends its first byte.
 
-- Pages answer about **14 times faster** than with sshuttle (1817 ms → 131 ms), and about 10 times faster while a download runs.
-- Downloads are about **1.5 times faster**.
-- There is still a gap: the bare Wi-Fi does 91.9 Mbit/s. The patient is stable, not cured.
+- Pages respond about 14 times faster than with sshuttle (1817 ms → 131 ms), and about 10 times faster while a download runs.
+- Downloads are about 1.5 times faster.
+- Downloads are still far below the 91.9 Mbit/s of the bare Wi-Fi. On rented servers, sshuttle2 fills a 100 Mbit/s link.
 
-## Discharge notes
+## Links
 
-I wrote this for myself, to get back to work. If it helps one more person stuck behind a firewall that blocks Wikipedia, it was worth it.
-
-Take it. Fork it. Bomb it with pull requests. Vibe-code it until the doctor comes. In a hospital, that happens every morning at rounds.
-
-The open ticket is right there in the table: get from 19 Mbit/s to 92.
+I wrote sshuttle2 to get back to work. If you are behind a firewall that lets only SSH through, it may help you too. Bug reports and pull requests are welcome: [github.com/allwinpower/sshuttle2](https://github.com/allwinpower/sshuttle2).
 
 ---
 
-sshuttle2 is inspired by [sshuttle](https://github.com/sshuttle/sshuttle); its firewall logic is ported from there. LGPL-2.1-or-later, like sshuttle.
+sshuttle2 ports its firewall logic from [sshuttle](https://github.com/sshuttle/sshuttle) and is licensed LGPL-2.1-or-later, like sshuttle.
