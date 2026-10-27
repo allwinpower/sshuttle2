@@ -9,6 +9,7 @@ What changed in each release of sshuttle2. A release's section here becomes its 
 - **`ssh://` URLs**, such as `sshuttle2 ssh://user@host:2222`.
 - **No networks means everything.** `sshuttle2 user@host` routes `0/0` (and in tun mode `::/0` and system DNS). Before, it stopped with an error.
 - `--dns` without networks used to send only DNS through the tunnel. It now routes everything; there is no DNS-only mode any more.
+- **Linux tun mode needs no iproute2.** The client sets the tun device's addresses and routes through netlink itself, instead of running the `ip` command.
 
 ## [0.2.0] - 2026-10-26
 

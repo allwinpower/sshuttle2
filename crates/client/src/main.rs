@@ -329,9 +329,6 @@ async fn run_transparent(cli: Cli, remote: String) -> Result<()> {
     if method == Method::Nft && helper::which("nft").is_none() {
         bail!("the nft command was not found: install nftables, or use --method tun");
     }
-    if method == Method::Tun && cfg!(target_os = "linux") && helper::which("ip").is_none() {
-        bail!("the ip command was not found: install iproute2, or use --method nft");
-    }
     debug!("capture method: {method:?}");
     let tun = method == Method::Tun;
     // No networks named: everything.
