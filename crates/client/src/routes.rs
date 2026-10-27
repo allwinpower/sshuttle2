@@ -147,81 +147,254 @@ mod os {
     }
 }
 
+/// Linux: rtnetlink, straight to the kernel, so tun mode needs no iproute2.
+/// Only the route and address types of netlink-packet-route are used: its
+/// generic message type would pull in decoders for every rtnetlink message
+/// (links, traffic control, ...), about 1 MB of the static binary.
 #[cfg(target_os = "linux")]
 mod os {
     use super::*;
+    use std::ffi::{CStr, CString};
+    use std::io;
+    use std::os::fd::AsRawFd;
+
+    use netlink_packet_core::{
+        DecodeError, DefaultNla, Emitable, ErrorBuffer, NLM_F_ACK, NLM_F_CREATE, NLM_F_EXCL,
+        NLM_F_REQUEST, NLMSG_ERROR, NetlinkBuffer, NetlinkHeader, Parseable,
+    };
+    use netlink_packet_route::AddressFamily as Family;
+    use netlink_packet_route::address::{AddressAttribute, AddressMessage};
+    use netlink_packet_route::link::{LinkFlags, LinkHeader};
+    use netlink_packet_route::route::{
+        RouteAddress, RouteAttribute, RouteHeader, RouteMessage, RouteProtocol, RouteScope,
+        RouteType,
+    };
+    use nix::sys::socket::{
+        AddressFamily, MsgFlags, NetlinkAddr, SockFlag, SockProtocol, SockType, recv, sendto,
+        socket,
+    };
+
+    const IFLA_MTU: u16 = 4;
 
     pub fn configure(ifname: &str, mtu: u16) -> Result<()> {
-        match run(
-            "ip",
-            &["addr", "add", &format!("{TUN_V4}/32"), "dev", ifname],
-        ) {
-            Err(e) if !format!("{e:#}").contains("File exists") => return Err(e),
-            _ => {}
+        debug!("netlink: {TUN_V4}/32 and {TUN_V6}/128 on {ifname}, MTU {mtu}, up");
+        let index = index(ifname)?;
+        add_address(index, TUN_V4.parse()?, 32)
+            .with_context(|| format!("adding {TUN_V4}/32 to {ifname}"))?;
+        if let Err(e) = add_address(index, TUN_V6.parse()?, 128) {
+            warn!("no IPv6 on {ifname}: {e}");
         }
-        if let Err(e) = run(
-            "ip",
-            &["-6", "addr", "add", &format!("{TUN_V6}/128"), "dev", ifname],
-        ) {
-            warn!("no IPv6 on {ifname}: {e:#}");
-        }
-        run(
-            "ip",
-            &["link", "set", ifname, "mtu", &mtu.to_string(), "up"],
-        )?;
+        let link = LinkHeader {
+            index,
+            flags: LinkFlags::Up,
+            change_mask: LinkFlags::Up,
+            ..Default::default()
+        };
+        let mtu_attr = [DefaultNla::new(
+            IFLA_MTU,
+            u32::from(mtu).to_ne_bytes().into(),
+        )];
+        request(libc::RTM_NEWLINK, 0, &[&link, &&mtu_attr[..]])
+            .with_context(|| format!("setting MTU {mtu} on {ifname} and bringing it up"))?;
         Ok(())
     }
 
+    /// An address the device already has (a second run) counts as added.
+    fn add_address(index: u32, ip: IpAddr, prefix: u8) -> io::Result<()> {
+        let mut m = AddressMessage::default();
+        m.header.family = family(ip);
+        m.header.prefix_len = prefix;
+        m.header.index = index;
+        m.attributes = vec![AddressAttribute::Local(ip), AddressAttribute::Address(ip)];
+        match request(libc::RTM_NEWADDR, NLM_F_CREATE | NLM_F_EXCL, &[&m]) {
+            Err(e) if e.raw_os_error() == Some(libc::EEXIST) => Ok(()),
+            r => r.map(drop),
+        }
+    }
+
     pub fn current_route(ip: IpAddr) -> Result<Via> {
-        let out = run("ip", &["route", "get", &ip.to_string()])?;
-        parse_route_get(&out).with_context(|| format!("no route to {ip}"))
+        let mut m = RouteMessage::default();
+        m.header.address_family = family(ip);
+        m.header.destination_prefix_length = Cidr::host(ip).prefix;
+        m.attributes.push(RouteAttribute::Destination(ip.into()));
+        let routes = request(libc::RTM_GETROUTE, 0, &[&m])
+            .with_context(|| format!("looking up the route to {ip}"))?;
+        let via = routes.iter().find_map(|r| via_of(r, name));
+        debug!("netlink: route to {ip}: {via:?}");
+        via.with_context(|| format!("no route to {ip}"))
     }
 
-    /// `1.1.1.1 via 10.0.0.1 dev eth0 src ...` or `10.0.0.5 dev eth0 src ...`.
-    pub fn parse_route_get(out: &str) -> Option<Via> {
-        let words: Vec<&str> = out.split_whitespace().collect();
-        let after = |k: &str| {
-            words
-                .iter()
-                .position(|w| *w == k)
-                .and_then(|i| words.get(i + 1))
-        };
-        if let Some(gw) = after("via")
-            && let Ok(ip) = gw.parse()
-        {
-            return Some(Via::Gateway(ip));
+    /// The next hop in the kernel's answer to a route lookup: its gateway,
+    /// or else its device (`name` turns the index into a name).
+    pub fn via_of(r: &RouteMessage, name: impl Fn(u32) -> Option<String>) -> Option<Via> {
+        let mut oif = None;
+        for a in &r.attributes {
+            match a {
+                RouteAttribute::Gateway(RouteAddress::Inet(g)) => {
+                    return Some(Via::Gateway((*g).into()));
+                }
+                RouteAttribute::Gateway(RouteAddress::Inet6(g)) => {
+                    return Some(Via::Gateway((*g).into()));
+                }
+                RouteAttribute::Oif(i) => oif = Some(*i),
+                _ => {}
+            }
         }
-        after("dev").map(|d| Via::Interface(d.to_string()))
+        oif.and_then(name).map(Via::Interface)
     }
 
-    fn args(verb: &str, net: Cidr, via: &Via) -> Vec<String> {
-        let mut a = vec![
-            if net.is_ipv6() { "-6" } else { "-4" }.to_string(),
-            "route".into(),
-            verb.into(),
-            net.to_string(),
-        ];
+    /// What `ip route add|del` sends: the main table; on adding, a unicast
+    /// route of protocol "boot", scope link when it names only a device.
+    pub fn route_message(net: Cidr, via: &Via, add: bool) -> Result<RouteMessage> {
+        let mut m = RouteMessage::default();
+        let h = &mut m.header;
+        h.address_family = family(net.ip);
+        h.destination_prefix_length = net.prefix;
+        h.table = RouteHeader::RT_TABLE_MAIN;
+        if add {
+            h.protocol = RouteProtocol::Boot;
+            h.kind = RouteType::Unicast;
+            if matches!(via, Via::Interface(_)) {
+                h.scope = RouteScope::Link;
+            }
+        } else {
+            // Matches the route whatever its scope.
+            h.scope = RouteScope::NoWhere;
+        }
+        if net.prefix > 0 {
+            m.attributes
+                .push(RouteAttribute::Destination(net.ip.into()));
+        }
+        m.attributes.push(match via {
+            Via::Gateway(g) => RouteAttribute::Gateway((*g).into()),
+            Via::Interface(i) => RouteAttribute::Oif(index(i)?),
+        });
+        Ok(m)
+    }
+
+    fn describe(via: &Via) -> String {
         match via {
-            Via::Gateway(gw) => {
-                a.push("via".into());
-                a.push(gw.to_string());
-            }
-            Via::Interface(i) => {
-                a.push("dev".into());
-                a.push(i.clone());
-            }
+            Via::Gateway(g) => format!("via {g}"),
+            Via::Interface(i) => format!("dev {i}"),
         }
-        a
     }
 
     pub fn add(net: Cidr, via: &Via) -> Result<()> {
-        let a = args("add", net, via);
-        run("ip", &a.iter().map(String::as_str).collect::<Vec<_>>()).map(|_| ())
+        debug!("netlink: route add {net} {}", describe(via));
+        route_message(net, via, true)
+            .and_then(|m| {
+                request(libc::RTM_NEWROUTE, NLM_F_CREATE | NLM_F_EXCL, &[&m])?;
+                Ok(())
+            })
+            .with_context(|| format!("adding route {net} {}", describe(via)))
     }
 
     pub fn delete(net: Cidr, via: &Via) -> Result<()> {
-        let a = args("del", net, via);
-        run("ip", &a.iter().map(String::as_str).collect::<Vec<_>>()).map(|_| ())
+        debug!("netlink: route del {net} {}", describe(via));
+        route_message(net, via, false)
+            .and_then(|m| {
+                request(libc::RTM_DELROUTE, 0, &[&m])?;
+                Ok(())
+            })
+            .with_context(|| format!("removing route {net} {}", describe(via)))
+    }
+
+    fn family(ip: IpAddr) -> Family {
+        if ip.is_ipv6() {
+            Family::Inet6
+        } else {
+            Family::Inet
+        }
+    }
+
+    fn index(ifname: &str) -> Result<u32> {
+        let c = CString::new(ifname)?;
+        match unsafe { libc::if_nametoindex(c.as_ptr()) } {
+            0 => Err(io::Error::last_os_error()).with_context(|| format!("no device {ifname}")),
+            i => Ok(i),
+        }
+    }
+
+    fn name(index: u32) -> Option<String> {
+        let mut buf = [0 as libc::c_char; libc::IF_NAMESIZE];
+        let p = unsafe { libc::if_indextoname(index, buf.as_mut_ptr()) };
+        if p.is_null() {
+            return None;
+        }
+        Some(unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned())
+    }
+
+    /// A request of type `kind` (RTM_*) as sent, asking the kernel to
+    /// acknowledge it. One socket per request, so the sequence number is
+    /// always 1.
+    pub fn encode(kind: u16, flags: u16, body: &[&dyn Emitable]) -> Vec<u8> {
+        let mut h = NetlinkHeader::default();
+        h.length = (h.buffer_len() + body.iter().map(|b| b.buffer_len()).sum::<usize>()) as u32;
+        h.message_type = kind;
+        h.flags = NLM_F_REQUEST | NLM_F_ACK | flags;
+        h.sequence_number = 1;
+        let mut buf = vec![0; h.length as usize];
+        let mut at = 0;
+        for part in [&h as &dyn Emitable].iter().chain(body) {
+            part.emit(&mut buf[at..at + part.buffer_len()]);
+            at += part.buffer_len();
+        }
+        buf
+    }
+
+    /// Sends one request and waits for its acknowledgement. Returns the
+    /// routes the kernel answered with before that (a lookup's result).
+    fn request(kind: u16, flags: u16, body: &[&dyn Emitable]) -> io::Result<Vec<RouteMessage>> {
+        let fd = socket(
+            AddressFamily::Netlink,
+            SockType::Raw,
+            SockFlag::SOCK_CLOEXEC,
+            SockProtocol::NetlinkRoute,
+        )?;
+        let kernel = NetlinkAddr::new(0, 0);
+        sendto(
+            fd.as_raw_fd(),
+            &encode(kind, flags, body),
+            &kernel,
+            MsgFlags::empty(),
+        )?;
+        let mut routes = Vec::new();
+        let mut buf = vec![0; 32 * 1024];
+        loop {
+            let n = recv(fd.as_raw_fd(), &mut buf, MsgFlags::empty())?;
+            if take_replies(&buf[..n], &mut routes)? {
+                return Ok(routes);
+            }
+        }
+    }
+
+    /// Decodes one datagram from the kernel, keeping the routes in it.
+    /// Returns true once the acknowledgement has arrived, and its error if
+    /// it carries one.
+    pub fn take_replies(mut buf: &[u8], routes: &mut Vec<RouteMessage>) -> io::Result<bool> {
+        let invalid = |e: DecodeError| io::Error::new(io::ErrorKind::InvalidData, e);
+        while !buf.is_empty() {
+            let msg = NetlinkBuffer::new_checked(buf).map_err(invalid)?;
+            match msg.message_type() {
+                NLMSG_ERROR => {
+                    let code = ErrorBuffer::new_checked(msg.payload())
+                        .map_err(invalid)?
+                        .code();
+                    return match code {
+                        None => Ok(true),
+                        Some(e) => Err(io::Error::from_raw_os_error(-e.get())),
+                    };
+                }
+                libc::RTM_NEWROUTE => {
+                    routes.push(RouteMessage::parse(msg.payload()).map_err(invalid)?)
+                }
+                _ => {}
+            }
+            // Messages are padded to 4 bytes.
+            let len = (msg.length() as usize).next_multiple_of(4);
+            buf = &buf[len.min(buf.len())..];
+        }
+        Ok(false)
     }
 }
 
@@ -506,16 +679,101 @@ mod tests {
         );
     }
 
+    /// Requests as `ip route add|del` sends them (same header and
+    /// attributes).
     #[cfg(target_os = "linux")]
     #[test]
-    fn parses_linux_route_get() {
+    fn linux_route_requests() {
+        use netlink_packet_core::{NLM_F_CREATE, NLM_F_EXCL};
+        let gw = |ip: &str| Via::Gateway(ip.parse().unwrap());
+        let add = |net: &str, via: Via| {
+            let m = os::route_message(net.parse().unwrap(), &via, true).unwrap();
+            os::encode(libc::RTM_NEWROUTE, NLM_F_CREATE | NLM_F_EXCL, &[&m])
+        };
+        let header = |len: u8, kind: u8, flags: [u8; 2]| {
+            [
+                len, 0, 0, 0, kind, 0, flags[0], flags[1], 1, 0, 0, 0, 0, 0, 0, 0,
+            ]
+        };
+        let mut want = header(44, 24, [0x05, 0x06]).to_vec(); // RTM_NEWROUTE, create, excl
+        want.extend([2, 8, 0, 0, 254, 3, 0, 1, 0, 0, 0, 0]); // main, boot, universe, unicast
+        want.extend([8, 0, 1, 0, 10, 0, 0, 0]); // RTA_DST
+        want.extend([8, 0, 5, 0, 192, 168, 1, 1]); // RTA_GATEWAY
+        assert_eq!(add("10/8", gw("192.168.1.1")), want);
+
+        // lo is device 1 in every network namespace.
+        let mut want = header(44, 24, [0x05, 0x06]).to_vec();
+        want.extend([2, 1, 0, 0, 254, 3, 253, 1, 0, 0, 0, 0]); // scope link
+        want.extend([8, 0, 1, 0, 0, 0, 0, 0]); // RTA_DST
+        want.extend([8, 0, 4, 0, 1, 0, 0, 0]); // RTA_OIF
+        assert_eq!(add("0/1", Via::Interface("lo".into())), want);
+
+        let m = os::route_message("2001:db8::/32".parse().unwrap(), &gw("fe80::1"), false);
+        let mut want = header(68, 25, [0x05, 0]).to_vec(); // RTM_DELROUTE
+        want.extend([10, 32, 0, 0, 254, 0, 255, 0, 0, 0, 0, 0]); // any scope
+        want.extend([20, 0, 1, 0, 0x20, 0x01, 0x0d, 0xb8]); // RTA_DST
+        want.extend([0; 12]);
+        want.extend([20, 0, 5, 0, 0xfe, 0x80]); // RTA_GATEWAY
+        want.extend([0; 13]);
+        want.push(1);
+        assert_eq!(os::encode(libc::RTM_DELROUTE, 0, &[&m.unwrap()]), want);
+    }
+
+    /// Kernel replies to RTM_GETROUTE: the route, then the acknowledgement.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_route_replies() {
+        let reply = |gateway: bool| {
+            let mut b = vec![0, 0, 0, 0, 24, 0, 0, 0, 1, 0, 0, 0, 0xd2, 0x04, 0, 0]; // RTM_NEWROUTE
+            b.extend([2, 32, 0, 0, 254, 0, 0, 1, 0, 2, 0, 0]); // RTM_F_CLONED
+            b.extend([8, 0, 15, 0, 254, 0, 0, 0]); // RTA_TABLE
+            b.extend([8, 0, 1, 0, 10, 0, 0, 7]); // RTA_DST
+            b.extend([8, 0, 4, 0, 2, 0, 0, 0]); // RTA_OIF
+            b.extend([8, 0, 7, 0, 10, 0, 0, 5]); // RTA_PREFSRC
+            if gateway {
+                b.extend([8, 0, 5, 0, 10, 0, 0, 1]); // RTA_GATEWAY
+            }
+            b.extend([8, 0, 25, 0, 0, 0, 0, 0]); // RTA_UID
+            b[0] = b.len() as u8;
+            b
+        };
+        let ack = |code: i32| {
+            let mut b = vec![36, 0, 0, 0, 2, 0, 0, 1, 1, 0, 0, 0, 0xd2, 0x04, 0, 0]; // NLMSG_ERROR
+            b.extend(code.to_le_bytes());
+            b.extend([36, 0, 0, 0, 26, 0, 5, 0, 1, 0, 0, 0, 0, 0, 0, 0]); // the request's header
+            b
+        };
+        let name = |i: u32| (i == 2).then(|| "eth0".to_string());
+        let via = |datagrams: &[Vec<u8>]| {
+            let mut routes = Vec::new();
+            for (i, d) in datagrams.iter().enumerate() {
+                let done = os::take_replies(d, &mut routes).unwrap();
+                assert_eq!(done, i == datagrams.len() - 1);
+            }
+            let [r] = &routes[..] else {
+                panic!("{routes:?}")
+            };
+            os::via_of(r, name)
+        };
         assert_eq!(
-            os::parse_route_get("1.1.1.1 via 10.0.0.1 dev eth0 src 10.0.0.5 uid 0\n    cache\n"),
+            via(&[[reply(true), ack(0)].concat()]),
             Some(Via::Gateway("10.0.0.1".parse().unwrap()))
         );
         assert_eq!(
-            os::parse_route_get("10.0.0.7 dev eth0 src 10.0.0.5 uid 0\n"),
+            via(&[reply(false), ack(0)]),
             Some(Via::Interface("eth0".into()))
+        );
+        let e = os::take_replies(&ack(-libc::EEXIST), &mut Vec::new()).unwrap_err();
+        assert_eq!(e.raw_os_error(), Some(libc::EEXIST));
+    }
+
+    /// A real lookup (no root needed).
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_route_lookup() {
+        assert_eq!(
+            os::current_route("127.0.0.1".parse().unwrap()).unwrap(),
+            Via::Interface("lo".into())
         );
     }
 }

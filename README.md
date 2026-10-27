@@ -127,7 +127,7 @@ sshuttle2 user@host
 
 `sshuttle2 -r user@host` and `sshuttle2 ssh://user@host:2222` do the same. It asks for your password, because the virtual network device (tun) and the routes need root. They are removed when it exits, even if it crashes.
 
-If the server has no IPv6, IPv6 connections are refused at once, so apps fall back to IPv4 without leaking. DNS queries from any app go to the server's resolver. On Linux, tun mode needs the `ip` command (iproute2), and the system resolver is pointed at the tunnel with `resolvectl` when systemd-resolved is in use; otherwise a warning says that system DNS is not redirected.
+If the server has no IPv6, IPv6 connections are refused at once, so apps fall back to IPv4 without leaking. DNS queries from any app go to the server's resolver. On Linux, the system resolver is pointed at the tunnel with `resolvectl` when systemd-resolved is in use; otherwise a warning says that system DNS is not redirected.
 
 Route only some networks by naming them after the host:
 
