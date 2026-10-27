@@ -39,9 +39,11 @@ work=$(mktemp -d)
 
 ssh-keygen -q -t ed25519 -N "" -f "$work/key"
 cp "$bin" "$work/sshuttle2"
+# No ip command (neither iproute2 nor busybox's link to its own): the client
+# must not need one. The checks below run busybox's as `busybox ip`.
 cat >"$work/Dockerfile" <<'EOF'
 FROM alpine:3.20
-RUN apk add --no-cache openssh python3 curl iproute2 bind-tools && ssh-keygen -A && \
+RUN apk add --no-cache openssh python3 curl bind-tools && rm -f /sbin/ip && ssh-keygen -A && \
     adduser -D -s /bin/sh tester && passwd -u tester && mkdir -p /home/tester/.ssh
 COPY key.pub /home/tester/.ssh/authorized_keys
 COPY key /root/key
@@ -86,12 +88,14 @@ fail() {
   exit 1
 }
 
+docker exec $p-client sh -c '! command -v ip' >/dev/null || fail "the client container has an ip command"
+
 # Without the tunnel the target is unreachable.
 if docker exec $p-client curl -s --max-time 3 -o /dev/null http://$target_ip:8000/; then
   fail "target reachable without the tunnel; the test proves nothing"
 fi
 
-docker exec -d $p-client sh -c "sshuttle2 -r tester@$p-sshd --method tun $far -vv \
+docker exec -d $p-client sh -c "sshuttle2 tester@$p-sshd $far -vv \
   -e 'ssh -i /root/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR' \
   >/tmp/client.log 2>&1"
 for _ in $(seq 1 100); do
@@ -99,6 +103,7 @@ for _ in $(seq 1 100); do
   sleep 0.2
 done
 docker exec $p-client sh -c 'grep -q "connected to" /tmp/client.log' || fail "client did not connect"
+docker exec $p-client grep -q "capture method: Tun" /tmp/client.log || fail "tun is not the default"
 
 # TCP: a 50 MB download arrives intact.
 want=$(docker exec $p-target sha256sum /tmp/big.bin | cut -c1-64)
@@ -160,10 +165,10 @@ echo "ok: DNS through the tunnel resolved $p-target to $target_ip"
 # Shutdown removes the routes.
 docker exec $p-client sh -c 'kill -INT $(pidof sshuttle2 | tr " " "\n" | head -1)'
 for _ in $(seq 1 50); do
-  docker exec $p-client sh -c "ip route | grep -q '$far'" || break
+  docker exec $p-client sh -c "busybox ip route | grep -q '$far'" || break
   sleep 0.2
 done
-if docker exec $p-client sh -c "ip route | grep -q '$far'"; then
+if docker exec $p-client sh -c "busybox ip route | grep -q '$far'"; then
   fail "route to $far still present after shutdown"
 fi
 echo "ok: routes removed on shutdown"

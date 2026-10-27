@@ -34,10 +34,10 @@ class Sshuttle2 < Formula
 
   def caveats
     <<~EOS
-      Routing traffic (pf, nft or tun mode) asks for your password, because
-      the firewall rules need root. A SOCKS5 proxy needs no root:
-        sshuttle2 -r user@host --socks5 127.0.0.1:1080
-      On Linux, nft mode needs the system's nft command (package nftables).
+      Routing traffic asks for your password, because the tun device, the
+      routes and the firewall rules need root. A SOCKS5 proxy needs no root:
+        sshuttle2 user@host --socks5 127.0.0.1:1080
+      On Linux, nft mode needs the nft command (nftables).
     EOS
   end
 

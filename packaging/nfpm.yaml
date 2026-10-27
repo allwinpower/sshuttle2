@@ -15,8 +15,8 @@ license: LGPL-2.1-or-later
 description: |-
   A VPN over a plain SSH login.
   If you can log in to a server with SSH, sshuttle2 sends your traffic
-  through it: TCP and DNS, and in tun mode all UDP too. Nothing is
-  installed on the server and it needs no root there.
+  through it: TCP, all UDP, DNS and IPv6. Nothing is installed on
+  the server and it needs no root there.
 
 contents:
   - src: ${BINARY}

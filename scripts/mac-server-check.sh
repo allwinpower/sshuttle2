@@ -229,7 +229,7 @@ if docker exec $p-client ip route show table all | grep -q tun; then
 fi
 
 # nft mode: TCP and DNS (the container's resolver) through the Mac.
-start 0/0 --dns
+start --method nft 0/0 --dns
 code=$(docker exec $p-client curl -sS --max-time 20 -o /dev/null -w '%{http_code}' https://example.com/) ||
   fail "nft: HTTPS through the Mac failed"
 echo "ok: nft mode, DNS and HTTPS ($code) through the Mac"
