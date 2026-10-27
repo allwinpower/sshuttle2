@@ -39,6 +39,8 @@ Packages for each release are on the [releases page](https://github.com/allwinpo
 
 Only Homebrew updates itself. With the other packages, install the next release the same way.
 
+Homebrew and the Linux packages also install the man page (`man sshuttle2`) and completions for bash, zsh and fish. The tarballs have them in `doc/` and `complete/`.
+
 ## Usage
 
 ```bash
