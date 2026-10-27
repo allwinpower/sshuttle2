@@ -28,7 +28,7 @@
 - [ ] **Try mimalloc in the server too.** The uploaded server is also built with musl, so mimalloc could speed it up as well, as it did the Linux client (README, "Linux client and mimalloc"). It would add about 10% to the 1.3 MB that is uploaded on first use, so it is a separate decision.
   To measure, run `scripts/alloc-bench.sh` once per server build, with the same client.
 
-- [ ] **Test two clients on one server at once.** Two devices can use the same server: each SSH login starts its own server process, and the only thing they share is the cached server binary, which each upload writes to its own temp file and then renames into place. Two bootstrap scripts racing into one empty cache passed 20 rounds out of 20 (28 October 2026). But no test runs two full clients at the same time.
+- [ ] **Test two clients on one server at once.** Two devices can use the same server: each SSH login starts its own server process, and the only thing they share is the cached server binary, which each upload writes to its own temp file and then renames into place. Two bootstrap scripts racing into one empty cache passed 20 rounds out of 20 (27 October 2026). But no test runs two full clients at the same time.
   To do: in `scripts/e2e.sh docker`, start a second client on its own SOCKS5 port against the same container, download through both at once, and check both finish.
 
 - [ ] **apt and dnf repositories, when users ask for them.** The `.deb` and `.rpm` from a release install with `sudo apt install ./file.deb` or `sudo dnf install ./file.rpm`, but they never update, because apt and dnf do not know where they came from. A package repository fixes that: users add it once, then `sudo apt install sshuttle2`, and `apt upgrade` or `dnf upgrade` brings each new release.
