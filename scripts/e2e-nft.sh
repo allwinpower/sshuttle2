@@ -130,12 +130,12 @@ fi
 # A route for the IPv6 test network, so connecting to it gets as far as nft.
 docker exec $p-client ip -6 addr add fd00:7e57::1/64 dev lo
 
-# No --method: auto must pick nft on Linux.
-docker exec -d $p-client sh -c "NO_COLOR=1 sshuttle2 -r tester@$p-sshd 0/0 $v6net -x $direct_ip --dns -vv \
+# nft is no longer the default; ask for it.
+docker exec -d $p-client sh -c "NO_COLOR=1 sshuttle2 -r tester@$p-sshd --method nft 0/0 $v6net -x $direct_ip --dns -vv \
   -e 'ssh -i /root/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR' \
   >/tmp/client.log 2>&1"
 wait_connected /tmp/client.log
-docker exec $p-client grep -q "capture method: Nft" /tmp/client.log || fail "auto did not choose nft"
+docker exec $p-client grep -q "capture method: Nft" /tmp/client.log || fail "--method nft did not choose nft"
 table=$(tables | awk '/sshuttle2-/ {print $3}')
 [ -n "$table" ] || fail "no sshuttle2 table loaded"
 echo "ok: auto chose nft; table $table loaded"
@@ -191,7 +191,7 @@ echo "ok: table removed on shutdown"
 
 # A helper killed outright leaves the table; `sshuttle2 cleanup` finds
 # it in the state file and removes it.
-docker exec -d $p-client sh -c "NO_COLOR=1 sshuttle2 -r tester@$p-sshd 0/0 -vv \
+docker exec -d $p-client sh -c "NO_COLOR=1 sshuttle2 -r tester@$p-sshd --method nft 0/0 -vv \
   -e 'ssh -i /root/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR' \
   >/tmp/client2.log 2>&1"
 wait_connected /tmp/client2.log

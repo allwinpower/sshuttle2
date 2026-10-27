@@ -91,7 +91,7 @@ if docker exec $p-client curl -s --max-time 3 -o /dev/null http://$target_ip:800
   fail "target reachable without the tunnel; the test proves nothing"
 fi
 
-docker exec -d $p-client sh -c "sshuttle2 -r tester@$p-sshd --method tun $far -vv \
+docker exec -d $p-client sh -c "sshuttle2 tester@$p-sshd $far -vv \
   -e 'ssh -i /root/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR' \
   >/tmp/client.log 2>&1"
 for _ in $(seq 1 100); do
@@ -99,6 +99,7 @@ for _ in $(seq 1 100); do
   sleep 0.2
 done
 docker exec $p-client sh -c 'grep -q "connected to" /tmp/client.log' || fail "client did not connect"
+docker exec $p-client grep -q "capture method: Tun" /tmp/client.log || fail "tun is not the default"
 
 # TCP: a 50 MB download arrives intact.
 want=$(docker exec $p-target sha256sum /tmp/big.bin | cut -c1-64)

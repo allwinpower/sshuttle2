@@ -168,6 +168,22 @@ fn ssh_command(opts: &TunnelOpts, nonce: &str, server_args: &str) -> Result<Comm
     Ok(cmd)
 }
 
+/// Turns `ssh://[user@]host[:port][/]` into `[user@]host[:port]`; anything
+/// else passes through unchanged.
+pub fn normalize_remote(remote: &str) -> Result<String> {
+    let Some(rest) = remote.strip_prefix("ssh://") else {
+        return Ok(remote.to_string());
+    };
+    let rest = rest.strip_suffix('/').unwrap_or(rest);
+    if rest.contains('/') {
+        bail!("ssh:// URLs take no path: {remote}");
+    }
+    if rest.is_empty() {
+        bail!("no host in {remote}");
+    }
+    Ok(rest.to_string())
+}
+
 /// Splits `[user@]host[:port]`, handling `[v6]:port`. A bare IPv6 address
 /// (several colons, no brackets) has no port.
 fn split_host_port(remote: &str) -> (String, Option<String>) {
@@ -221,5 +237,25 @@ mod tests {
         );
         assert_eq!(s("u@[2001:db8::1]"), ("u@2001:db8::1".into(), None));
         assert_eq!(s("2001:db8::1"), ("2001:db8::1".into(), None));
+    }
+
+    #[test]
+    fn ssh_urls() {
+        let n = |r: &str| normalize_remote(r).unwrap();
+        assert_eq!(n("host"), "host");
+        assert_eq!(n("local"), "local");
+        assert_eq!(n("ssh://host"), "host");
+        assert_eq!(n("ssh://user@host"), "user@host");
+        assert_eq!(n("ssh://user@host:2222"), "user@host:2222");
+        assert_eq!(n("ssh://user@[::1]:2222"), "user@[::1]:2222");
+        assert_eq!(n("ssh://user@host/"), "user@host");
+        assert!(normalize_remote("ssh://host/x").is_err());
+        assert!(normalize_remote("ssh://host//").is_err());
+        assert!(normalize_remote("ssh://").is_err());
+        // The URL form ends up where the plain form does.
+        assert_eq!(
+            split_host_port(&n("ssh://user@[::1]:2222")),
+            ("user@::1".into(), Some("2222".into()))
+        );
     }
 }

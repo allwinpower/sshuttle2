@@ -158,7 +158,7 @@ for host in "$@"; do
 
   echo
   echo "== $host: sshuttle2, pf mode (TCP + DNS)"
-  if start pf "connected to" "$bin" -r "$host" 0/0 --dns -v; then
+  if start pf "connected to" "$bin" -r "$host" --method pf 0/0 --dns -v; then
     sleep 2
     measure
     stop
