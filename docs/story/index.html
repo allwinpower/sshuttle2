@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Why sshuttle2 Exists</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="A hospital Wi-Fi blocked AI, every VPN and Wikipedia on my Mac and my phone. Only SSH got through, and sshuttle was too slow. So I fixed my internet first.">
-<link rel="canonical" href="https://sshuttle2.openrepos.org/">
+<meta name="description" content="A hospital's Wi-Fi blocked AI tools, every VPN and Wikipedia. Only SSH got through, and sshuttle was too slow. Why I wrote sshuttle2.">
+<link rel="canonical" href="https://allwinpower.github.io/sshuttle2/">
 <style>
 /* Layout: a plain text file in the GNU manner. One monospace column, 72 characters wide; ASCII art in <pre>. */
 :root {
@@ -98,9 +98,6 @@ ul > li::before { content: "*"; position: absolute; left: -2ch; }
 ul.blocked > li::before { content: "X"; color: var(--alarm); }
 ol.toc { padding-left: 4ch; }
 
-.quote { margin: 0 0 0.25em; color: var(--muted); }
-.reply { margin: 0 0 1em 2ch; }
-
 .shots {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -135,7 +132,6 @@ dl.features dt::before { content: "* "; }
 dl.features dd { margin: 0 0 0.8em 2ch; }
 
 .note { color: var(--muted); font-size: 0.87em; }
-.todo { font-weight: 700; }
 
 hr { border: 0; margin: 2.5em 0 1.2em; height: 1.55em; overflow: hidden; }
 hr::before { content: "------------------------------------------------------------------------"; display: block; white-space: nowrap; color: var(--rule); }
@@ -154,34 +150,22 @@ footer p { color: var(--muted); font-size: 0.87em; }
 (_-&lt;(_-&lt;| ' \ | || ||  _||  _|| |/ -_)  / /
 /__//__/|_||_| \_,_| \__| \__||_|\___| /___|</pre>
 
-<p><b>The hospital Wi-Fi blocked everything except SSH.</b> So before I could do my work, I had to fix my internet. This is why I wrote sshuttle2, a full Rust implementation inspired by <a href="https://github.com/sshuttle/sshuttle">sshuttle</a>.</p>
+<p><b>A hospital's Wi-Fi blocked everything except SSH.</b> To get my work done, I first had to fix my internet connection. This is why I wrote sshuttle2, a Rust implementation of the idea behind <a href="https://github.com/sshuttle/sshuttle">sshuttle</a>.</p>
 <p class="note">Allwin, October 2026</p>
 <p>Source code: <a href="https://github.com/allwinpower/sshuttle2">github.com/allwinpower/sshuttle2</a></p>
 
-<pre class="art" role="img" aria-label="Patient wristband. Patient: my internet. Ward: patient Wi-Fi. Devices: a Mac and a phone. Allergies: AI, VPNs, Wikipedia. Tolerates: SSH, port 22.">+--------------------------------------+
-| PATIENT    my internet               |
-| WARD       patient Wi-Fi             |
-| DEVICES    a Mac and a phone         |
-| ALLERGIES  AI, VPNs, Wikipedia       |
-| TOLERATES  SSH, port 22              |
-+--------------------------------------+</pre>
-
-<h3>Table of Contents</h3>
+<h3>Contents</h3>
 <ol class="toc">
-  <li><a href="#admitted">Admitted</a></li>
-  <li><a href="#symptoms">Symptoms</a></li>
-  <li><a href="#examination">Examination</a></li>
-  <li><a href="#treatment">First treatment: sshuttle</a></li>
-  <li><a href="#surgery">Surgery</a></li>
-  <li><a href="#vitals">Vitals after surgery</a></li>
-  <li><a href="#discharge">Discharge notes</a></li>
+  <li><a href="#network">The network</a></li>
+  <li><a href="#ssh">What got through</a></li>
+  <li><a href="#sshuttle">sshuttle</a></li>
+  <li><a href="#sshuttle2">sshuttle2</a></li>
+  <li><a href="#results">Results</a></li>
+  <li><a href="#links">Links</a></li>
 </ol>
 
-<h2 id="admitted">1. Admitted</h2>
-<p>I ended up in a hospital. The staff were kind, the bed was fine, and I still had work to do. I had my Mac and my phone with me, and the hospital has patient Wi-Fi. Great, I thought, and opened the laptop.</p>
-
-<h2 id="symptoms">2. Symptoms</h2>
-<p>The patient Wi-Fi sits behind a Fortinet firewall, and that firewall has opinions. The Mac and the phone got the same treatment. The screenshots are from the phone (Brave on Android).</p>
+<h2 id="network">1. The network</h2>
+<p>I was in a hospital for a while, with my Mac, my phone and work to do. The patient Wi-Fi runs through a Fortinet firewall that inspects HTTPS. The screenshots are from the phone (Brave on Android); the Mac got the same errors.</p>
 <div class="shots">
   <figure class="shot">
     <img src="img/blocked-claude.png" width="720" height="1380" alt="Brave on Android: claude.ai fails with 'An application is stopping Brave from safely connecting to this site', Fortinet, NET::ERR_CERT_AUTHORITY_INVALID.">
@@ -196,22 +180,16 @@ footer p { color: var(--muted); font-size: 0.87em; }
     <figcaption>Fig. 3: en.wikipedia.org <span class="flag">[BLOCKED]</span></figcaption>
   </figure>
 </div>
-<p>Three sites, three identical refusals.</p>
 <p>What the firewall blocked, on both devices:</p>
 <ul class="blocked">
-  <li><b>Claude</b>, <b>ChatGPT</b> and every other AI tool I tried.</li>
-  <li><b>Every VPN</b>: WireGuard, Shadowsocks, Mullvad, and the rest.</li>
-  <li><b>Wikipedia.</b> The free encyclopedia. In a building full of people who want to look up their own diagnosis.</li>
+  <li>Claude, ChatGPT and every other AI tool I tried.</li>
+  <li>Every VPN I tried: WireGuard, Shadowsocks, Mullvad.</li>
+  <li>Wikipedia.</li>
 </ul>
-<p>The error is NET::ERR_CERT_AUTHORITY_INVALID. The firewall opens every HTTPS connection to look inside and signs the result with its own certificate. My devices have never met that certificate, so they refuse the page.</p>
-<p>Brave offers two fixes:</p>
-<p class="quote">&gt; Try uninstalling or disabling "Fortinet"</p>
-<p class="reply">Sure. I'll walk to the hospital's server room in my patient gown and ask nicely.</p>
-<p class="quote">&gt; Try connecting to another network</p>
-<p class="reply">Patients don't get to pick the network.</p>
+<p>The error is NET::ERR_CERT_AUTHORITY_INVALID. The firewall decrypts each HTTPS connection and signs it again with its own certificate, which my devices do not trust. Brave suggests disabling Fortinet or connecting to another network. A patient can do neither.</p>
 
-<h2 id="examination">3. Examination</h2>
-<p>I tried everything. One thing got through: <b>SSH</b>. Maybe the IT team needs it, maybe nobody thought about it. Either way, I could log in to my own server from the Mac.</p>
+<h2 id="ssh">2. What got through</h2>
+<p>SSH on port 22 was not blocked, so I could log in to my own server from the Mac.</p>
 <pre class="art" role="img" aria-label="Diagram: from the Mac and the phone, Fortinet blocks claude.ai, chatgpt.com, wikipedia.org and the VPNs. From the Mac, SSH on port 22 reaches my server, and from there the internet.">          Fortinet
              |
  [Mac]   ----X---&gt; claude.ai, chatgpt.com
@@ -220,31 +198,29 @@ footer p { color: var(--muted); font-size: 0.87em; }
                    Mullvad, ...
 
  [Mac] == ssh :22 ==&gt; [my server] --&gt; internet</pre>
-<p>If you can SSH, you can tunnel. That is the idea behind <a href="https://github.com/sshuttle/sshuttle">sshuttle</a>: a VPN over a plain SSH login, with nothing to install on the server.</p>
+<p>A network that allows SSH allows a tunnel. That is the idea behind <a href="https://github.com/sshuttle/sshuttle">sshuttle</a>: a VPN over a plain SSH login, with nothing to install on the server.</p>
 
-<h2 id="treatment">4. First treatment: sshuttle</h2>
-<p>sshuttle worked on the Mac. Everything got through. Slowly.</p>
+<h2 id="sshuttle">3. sshuttle</h2>
+<p>sshuttle worked on the Mac, but slowly:</p>
 <ul>
-  <li>Downloads ran at <b>12.8 Mbit/s</b>. The same Wi-Fi does 91.9 Mbit/s to sites it doesn't block.</li>
-  <li>A tiny page request waited <b>1.8 seconds</b>. With a download running next to it: <b>2.3 seconds</b>.</li>
+  <li>Downloads ran at 12.8 Mbit/s, on a Wi-Fi that does 91.9 Mbit/s to sites it does not block.</li>
+  <li>A small page request took 1.8 seconds, and 2.3 seconds while a download was running.</li>
 </ul>
-<p>Every click felt like waiting for the doctor's round.</p>
-<p>The cause is not a bug. sshuttle sends every byte through one single-threaded Python process on the server. On small cloud servers that caps it at about 30-45 Mbit/s, and every packet waits its turn in the same queue. sshuttle is a great idea and has helped people for years. It just could not carry my workday.</p>
+<p>sshuttle relays every connection through one single-threaded Python process on the server, and all packets share one queue. It has served people well for years, but it was too slow for a working day.</p>
 
-<h2 id="surgery">5. Surgery</h2>
-<p>So before I could do my actual work, I had to fix my internet.</p>
-<p>I wrote sshuttle2, a full Rust implementation inspired by <a href="https://github.com/sshuttle/sshuttle">sshuttle</a>. Both ends are new code, and it keeps the good idea: you need nothing on the server except an SSH login. It runs on the Mac (and on Linux). On first run the client uploads a small server program (about 1.3 MB) through SSH and reuses it after that.</p>
-<p>What changed:</p>
+<h2 id="sshuttle2">4. sshuttle2</h2>
+<p>So I wrote sshuttle2 in Rust. Both ends are new code, and the idea is the same: the server needs nothing but an SSH login. On first run, the client uploads a small server binary (about 1.3 MB) over SSH and reuses it after that. It runs on macOS and Linux.</p>
+<p>What is different:</p>
 <dl class="features">
-  <dt>No Python in the data path.</dt><dd>Both ends are compiled Rust.</dd>
-  <dt>Many connections, one SSH session, separate lanes.</dt><dd>Each connection has its own flow control, so one big download doesn't block everything else.</dd>
-  <dt>Windows that size themselves.</dt><dd>Each lane grows while it limits the speed and shrinks when it only builds a queue. One download can use the link, and a page doesn't wait behind it.</dd>
-  <dt>TCP, DNS, and all UDP.</dt><dd>In tun mode video calls, QUIC and games go through the tunnel too.</dd>
-  <dt>Clean exit.</dt><dd>Firewall rules and routes are removed when it stops, even after a crash.</dd>
+  <dt>Rust at both ends.</dt><dd>No Python in the data path.</dd>
+  <dt>One SSH session, one channel per connection.</dt><dd>Each channel has its own flow control, so a large download does not hold up other connections.</dd>
+  <dt>Self-sizing windows.</dt><dd>A channel's window grows while it limits throughput and shrinks when it only adds queueing delay.</dd>
+  <dt>TCP, DNS and UDP.</dt><dd>In tun mode, video calls, QUIC and games go through the tunnel too.</dd>
+  <dt>Clean exit.</dt><dd>Firewall rules and routes are removed on exit, also after a crash.</dd>
 </dl>
 
-<h2 id="vitals">6. Vitals after surgery</h2>
-<p>Measured on the Mac. Same Wi-Fi, same server (2 vCPU, 4 GB), same day (23 October 2026). Single samples. A repeat with medians, on rented servers: <a href="https://github.com/allwinpower/sshuttle2/blob/main/docs/speed-results.md">speed test results</a>.</p>
+<h2 id="results">5. Results</h2>
+<p>Measured on the Mac, with the same Wi-Fi and the same server (2 vCPU, 4 GB) on the same day. Single samples. Repeated measurements on rented servers: <a href="https://github.com/allwinpower/sshuttle2/blob/main/docs/benchmarks.md">benchmarks</a>.</p>
 <!-- Bars are drawn to scale: page wait one # = 80 ms, download one # = 4 Mbit/s, rounded. -->
 <pre class="art" role="img" aria-label="Page wait, idle: no tunnel 128 ms, sshuttle 1817 ms, sshuttle2 pf mode 131 ms, sshuttle2 tun mode 211 ms.">Page wait, idle. Shorter is better.
 (one # = 80 ms)
@@ -271,19 +247,13 @@ sshuttle2 tun  ####                       17.4</pre>
 +---------------+----------+-----------+------------+</pre>
 <p class="note">* No tunnel: blocked sites stay blocked. pf mode: TCP and DNS. tun mode: TCP, UDP and DNS. Download: one 100 MB file. Page wait: time until google.com/generate_204 sends its first byte. Busy: while that download runs.</p>
 <ul>
-  <li>Pages answer about <b>14 times faster</b> than with sshuttle (1817 ms -&gt; 131 ms), and about 10 times faster while a download runs (2281 ms -&gt; 223 ms).</li>
-  <li>Downloads are about <b>1.5 times faster</b> (12.8 -&gt; 19.1 Mbit/s).</li>
-  <li>There is still a gap: the bare Wi-Fi does 91.9 Mbit/s. The patient is stable, not cured.</li>
+  <li>Pages respond about 14 times faster than with sshuttle (1817 ms -&gt; 131 ms), and about 10 times faster while a download runs (2281 ms -&gt; 223 ms).</li>
+  <li>Downloads are about 1.5 times faster (12.8 -&gt; 19.1 Mbit/s).</li>
+  <li>Downloads are still far below the 91.9 Mbit/s of the bare Wi-Fi. On rented servers, sshuttle2 fills a 100 Mbit/s link.</li>
 </ul>
 
-<h2 id="discharge">7. Discharge notes</h2>
-<p>I wrote this for myself, to get back to work. If it helps one more person stuck behind a firewall that blocks Wikipedia, it was worth it.</p>
-<p>Take it. Fork it. Bomb it with pull requests.</p>
-<pre class="art">+------------------------------------------+
-|   Vibe-code it until the doctor comes.   |
-+------------------------------------------+</pre>
-<p>In a hospital, that happens every morning at rounds.</p>
-<p class="todo">TODO: get from 19 Mbit/s to 92.</p>
+<h2 id="links">6. Links</h2>
+<p>I wrote sshuttle2 to get back to work. If you are behind a firewall that lets only SSH through, it may help you too. Bug reports and pull requests are welcome.</p>
 <ul>
   <li>Source code: <a href="https://github.com/allwinpower/sshuttle2">github.com/allwinpower/sshuttle2</a></li>
   <li>Pull requests: <a href="https://github.com/allwinpower/sshuttle2/pulls">github.com/allwinpower/sshuttle2/pulls</a></li>

@@ -1,38 +1,67 @@
 # Changelog
 
-What changed in each release of sshuttle2. A release's section here becomes its GitHub Release notes ([docs/RELEASING.md](docs/RELEASING.md)).
+All notable changes to sshuttle2. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-- **tun mode is the default.** It carries TCP, all UDP, DNS and IPv6, so nothing leaks around the tunnel. Before, the default was pf (macOS) or nft (Linux), which carry only TCP and DNS. For the old behaviour, add `--method pf` or `--method nft`. `--method auto` still parses and means tun; `--udp` does nothing.
-- **The host needs no `-r`.** `sshuttle2 user@host` works; the first argument is the host, the rest are networks. `-r user@host` works as before.
-- **`ssh://` URLs**, such as `sshuttle2 ssh://user@host:2222`.
-- **No networks means everything.** `sshuttle2 user@host` routes `0/0` (and in tun mode `::/0` and system DNS). Before, it stopped with an error.
-- `--dns` without networks used to send only DNS through the tunnel. It now routes everything; there is no DNS-only mode any more.
-- **Linux tun mode needs no iproute2.** The client sets the tun device's addresses and routes through netlink itself, instead of running the `ip` command.
-- **tun mode starts on IPv6 networks with a link-local router.** tun mode keeps the ssh server and `-x` networks on the route they have now. When that route went through a link-local IPv6 router (`fe80::1`, as router advertisements usually set up), adding it failed (on Linux with "Invalid argument") and tun mode did not start. An ssh server reached over IPv6 hit this on most networks with IPv6. The route now keeps the router's device, on Linux and macOS.
+### Added
+
+- `ssh://` destinations, such as `sshuttle2 ssh://user@host:2222`.
+
+### Changed
+
+- tun mode is the default on macOS and Linux, so UDP and IPv6 no longer bypass the tunnel. Use `--method pf` or `--method nft` for the previous behaviour.
+- The host can be the first argument: `sshuttle2 user@host`. `-r user@host` still works.
+- With no networks given, sshuttle2 routes everything (`0/0`, and in tun mode also `::/0` and system DNS) instead of exiting with an error.
+- `--dns` with no networks routes everything. The DNS-only mode is removed.
+- Linux tun mode sets addresses and routes over netlink and no longer needs iproute2.
+
+### Deprecated
+
+- `--method auto`, which now means tun, and `--udp`, which has no effect.
+
+### Fixed
+
+- tun mode did not start when the route to the SSH server or to an `-x` network went through a link-local IPv6 router such as `fe80::1`.
 
 ## [0.2.0] - 2026-10-26
 
-- **macOS servers.** The server can now be a Mac (Apple Silicon or Intel) with Remote Login on, not only Linux. The client picks the server binary by the remote host's system and CPU. Each client is about 2.2 MB larger, as it carries the two macOS servers too.
+### Added
+
+- macOS servers: the server can be a Mac (Apple Silicon or Intel) with Remote Login turned on. The client picks the server binary by the remote system and CPU, and is about 2.2 MB larger.
 
 ## [0.1.2] - 2026-10-24
 
-- **tun mode: uploads wait for the tunnel.** The built-in TCP stack acknowledged every byte an app sent at once and queued it unread. So an upload through a slower tunnel looked sent long before it was, Ookla's speedtest gave up waiting for the server's answer (it failed in the upload with the server far away), and the client could grow by gigabytes. Now the receive window closes once 256 KiB of a connection wait unread, and reopens as the tunnel takes them.
+### Fixed
+
+- tun mode: uploads ran ahead of the tunnel. The TCP stack acknowledged data before the tunnel had sent it, so uploads over slow paths stalled and client memory could grow without bound. The receive window now closes once 256 KiB of a connection is waiting.
 
 ## [0.1.1] - 2026-10-23
 
-- **Slow or distant servers no longer stall the tunnel.** Each connection kept at least 256 KiB in flight, so when the path was much slower than that (as across an ocean, where Ookla's speedtest stalled in every run), several downloads together queued seconds of data in front of every other connection. A connection's window now also shrinks below its starting size while it only builds a queue, and grows back when the path gets faster.
-- An Arch Linux package (`.pkg.tar.zst`, x86_64 and aarch64) comes with every final release: `sudo pacman -U` its link. The AUR package `sshuttle2-bin` follows when the AUR takes new accounts again.
+### Added
+
+- Arch Linux packages (`.pkg.tar.zst`, x86_64 and aarch64) with every final release.
+
+### Fixed
+
+- Several connections to a slow or distant server queued seconds of data in front of each other. A connection's window now shrinks below its initial 256 KiB while it only adds delay, and grows back when the path speeds up.
 
 ## [0.1.0] - 2026-10-23
 
-The first release.
+First release.
 
-- **pf mode** (macOS) and **nft mode** (Linux): TCP and DNS through one SSH login.
-- **tun mode** (macOS, Linux): TCP, all UDP, DNS and IPv6.
-- **SOCKS5 proxy** (CONNECT and UDP ASSOCIATE), which needs no root.
-- The server is a small static Linux program (x86_64, arm64), uploaded over SSH on first use.
-- Prebuilt clients for macOS (Apple Silicon, Intel) and Linux (x86_64, arm64), as `.tar.gz`, `.deb` and `.rpm`, with an install script.
-- Homebrew on macOS and Linux: `brew install allwinpower/tap/sshuttle2`.
-- The Linux client uses mimalloc instead of musl's allocator. When the CPU is the limit, it moves 17–25% more data at half the CPU. The README's Benchmarks section has the numbers.
+### Added
+
+- tun mode (macOS, Linux): TCP, UDP, DNS and IPv6.
+- pf mode (macOS) and nft mode (Linux): TCP and DNS.
+- SOCKS5 proxy with CONNECT and UDP ASSOCIATE, without root.
+- A static Linux server (x86_64, arm64), uploaded over SSH on first use.
+- Prebuilt clients for macOS and Linux (amd64, arm64) as `.tar.gz`, `.deb` and `.rpm`, and an install script.
+- Homebrew: `brew install allwinpower/tap/sshuttle2`.
+- The Linux client uses mimalloc instead of musl's allocator: half the CPU and 17–25% more throughput when the CPU is the limit.
+
+[Unreleased]: https://github.com/allwinpower/sshuttle2/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/allwinpower/sshuttle2/compare/v0.1.2...v0.2.0
+[0.1.2]: https://github.com/allwinpower/sshuttle2/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/allwinpower/sshuttle2/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/allwinpower/sshuttle2/releases/tag/v0.1.0

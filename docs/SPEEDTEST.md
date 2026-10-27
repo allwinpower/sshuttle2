@@ -1,6 +1,6 @@
 # Speed test on fresh servers
 
-The [Speed test](../.github/workflows/speedtest.yml) workflow compares sshuttle and sshuttle2 on rented [LightNode](https://www.lightnode.com) VMs. It creates the VMs, measures, writes a report and deletes the VMs again. Only the repository owner can start it.
+The [Speed test](../.github/workflows/speedtest.yml) workflow compares sshuttle and sshuttle2 on rented [LightNode](https://www.lightnode.com) VMs. It creates the VMs, measures, writes a report and deletes the VMs again. Only the maintainer (`allwinpower`) can start it.
 
 ## What it measures
 
@@ -28,7 +28,7 @@ The latest published results: [speed-results.md](speed-results.md). The job summ
 ## Setup, once
 
 1. In the LightNode console, create an API token for this alone, so it can be revoked alone.
-2. Create the environment `speedtest`: the owner must approve each run, and only `main` can use it.
+2. Create the environment `speedtest`: the maintainer must approve each run, and only `main` can use it.
 
    ```bash
    gh api -X PUT repos/allwinpower/sshuttle2/environments/speedtest --input - <<EOF
@@ -42,10 +42,10 @@ The latest published results: [speed-results.md](speed-results.md). The job summ
    gh api -X POST repos/allwinpower/sshuttle2/environments/speedtest/deployment-branch-policies -f name=main -f type=branch
    ```
 
-3. Copy the token, then store it as a secret of that environment only:
+3. Store the token as a secret of that environment only (the command prompts for it):
 
    ```bash
-   pbpaste | gh secret set LIGHTNODE_TOKEN --env speedtest -R allwinpower/sshuttle2
+   gh secret set LIGHTNODE_TOKEN --env speedtest -R allwinpower/sshuttle2
    ```
 
 4. Find the region codes: Actions → Speed test → Run workflow, action `list`. It creates nothing.
@@ -73,7 +73,7 @@ The repository is public. Anyone can open a pull request, and anyone can read th
 
 - The workflow starts only from "Run workflow" (`workflow_dispatch`), which needs write access. No push, pull request or schedule starts it, and no workflow in this repository uses `pull_request_target`.
 - Its jobs run only when both the actor and the triggering actor are `allwinpower`, re-runs included.
-- The token is a secret of the `speedtest` environment, not of the repository. A job gets it only from `main`, and only after the owner approves the run. Pull request branches and forks can never reach it.
+- The token is a secret of the `speedtest` environment, not of the repository. A job gets it only from `main`, and only after the maintainer approves the run. Pull request branches and forks can never reach it.
 - Within the job, only the steps that call the LightNode API (`lightnode.sh`: create, list, delete) get the token. `lightnode.sh` hands it to curl through a file descriptor, never on a command line.
 - The sshuttle2 build runs in its own job without the environment: third-party actions and build scripts never run next to the token. sshuttle, Ookla's CLI and sshuttle2 run only on the VMs, which never see it.
 - The job that has the token uses only GitHub's own actions, pinned to a commit, and checks out without keeping git credentials.

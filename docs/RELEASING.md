@@ -6,7 +6,7 @@ A version tag publishes a release. [release.yml](../.github/workflows/release.ym
 
 1. Open a pull request that:
    - sets `version` under `[workspace.package]` in `Cargo.toml`, then runs `cargo update -w` to update `Cargo.lock`;
-   - dates that version's section in `CHANGELOG.md`, for example `## [0.2.0] - 2026-11-02`.
+   - renames `## [Unreleased]` in `CHANGELOG.md` to the version with a UTC date, for example `## [0.2.0] - 2026-11-02`, adds a new empty `## [Unreleased]` above it, and updates the compare links at the bottom.
 
    CI builds every release file for it, and it merges when green.
 2. Tag the merged commit. Use `TZ=UTC`, because the tag records the time and zone:
@@ -23,7 +23,7 @@ A version tag publishes a release. [release.yml](../.github/workflows/release.ym
 
 **Prerelease:** version `0.2.0-rc.1`, tag `v0.2.0-rc.1`. It uses the `0.2.0` section of the CHANGELOG, and GitHub marks it as a prerelease. Homebrew does not get it.
 
-**Homebrew token:** the release job pushes the formula with the `HOMEBREW_TAP_TOKEN` secret. That is a fine-grained token with contents read and write on `allwinpower/homebrew-tap` only. When it expires, make a new one and run `pbpaste | gh secret set HOMEBREW_TAP_TOKEN -R allwinpower/sshuttle2`. Then rerun the failed `homebrew` job.
+**Homebrew token:** the release job pushes the formula with the `HOMEBREW_TAP_TOKEN` secret. That is a fine-grained token with contents read and write on `allwinpower/homebrew-tap` only. When it expires, create a new one, store it with `gh secret set HOMEBREW_TAP_TOKEN -R allwinpower/sshuttle2`, and rerun the failed `homebrew` job.
 
 **AUR (Arch Linux):** after a final release, run:
 
@@ -41,7 +41,7 @@ It builds the `sshuttle2-bin` package from the published release on Arch Linux, 
 
 | File | What |
 |---|---|
-| `sshuttle2-VERSION-{macos,linux}-{amd64,arm64}.tar.gz` | The client, licenses and README. `amd64` is x86_64, named so because Homebrew misreads `-x86_64` in a prerelease as version 86.64. The Linux clients are static (musl) and run on any distribution. |
+| `sshuttle2-VERSION-{macos,linux}-{amd64,arm64}.tar.gz` | The client, licenses and README. `amd64` is x86_64 (Homebrew would read `-x86_64` in a prerelease as version 86.64). The Linux clients are static (musl) and run on any distribution. |
 | `sshuttle2_VERSION_{amd64,arm64}.deb` | Debian and Ubuntu package |
 | `sshuttle2-VERSION-1.{x86_64,aarch64}.rpm` | Fedora, RHEL and compatible package |
 | `sshuttle2-VERSION-1-{x86_64,aarch64}.pkg.tar.zst` | Arch Linux package, for `pacman -U`. Final releases only: nfpm would drop a prerelease from its version. |
