@@ -30,6 +30,10 @@ class Sshuttle2 < Formula
 
   def install
     bin.install "sshuttle2"
+    man1.install "doc/sshuttle2.1"
+    bash_completion.install "complete/sshuttle2.bash" => "sshuttle2"
+    zsh_completion.install "complete/_sshuttle2"
+    fish_completion.install "complete/sshuttle2.fish"
   end
 
   def caveats

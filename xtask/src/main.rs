@@ -7,7 +7,9 @@
 //! same server.
 //! `cargo xtask package TARGET`: that client as a tarball in dist/, and for
 //! Linux also as .deb, .rpm and, for final versions, an Arch package (with
-//! nfpm).
+//! nfpm). Each one has the man page and the bash, zsh and fish completions.
+//! `cargo xtask docs`: only the man page and completions, into
+//! target/xtask/docs/.
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -15,6 +17,23 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
+use clap::CommandFactory;
+use clap_complete::Shell;
+
+/// The client's command line, for its man page and completions. Only the
+/// definitions are used here, not the parsed fields.
+#[allow(dead_code)]
+#[path = "../../crates/client/src/cli.rs"]
+mod cli;
+
+/// The generated docs, as named in target/xtask/docs/ and in a tarball.
+/// packaging/nfpm.yaml, the Homebrew formula and the PKGBUILD install them.
+const DOCS: [&str; 4] = [
+    "doc/sshuttle2.1",
+    "complete/sshuttle2.bash",
+    "complete/_sshuttle2",
+    "complete/sshuttle2.fish",
+];
 
 /// Each server the client embeds: its platform name (as the bootstrap
 /// script reports the remote host) and its target.
@@ -43,7 +62,85 @@ fn main() -> Result<()> {
         }
         ("client", Some(target)) => client_for(&root, target),
         ("package", Some(target)) => package(&root, target),
-        _ => bail!("usage: cargo xtask <dist|servers|client TARGET|package TARGET>"),
+        ("docs", None) => docs(&root).map(|_| ()),
+        _ => bail!("usage: cargo xtask <dist|servers|client TARGET|package TARGET|docs>"),
+    }
+}
+
+/// Writes the man page and shell completions into target/xtask/docs/ and
+/// returns that directory.
+fn docs(root: &Path) -> Result<PathBuf> {
+    let dir = root.join("target/xtask/docs");
+    std::fs::create_dir_all(dir.join("doc"))?;
+    std::fs::create_dir_all(dir.join("complete"))?;
+
+    let cmd = cli::Cli::command();
+    std::fs::write(dir.join(DOCS[0]), man_page(&cmd)?)?;
+
+    for (shell, name) in [
+        (Shell::Bash, DOCS[1]),
+        (Shell::Zsh, DOCS[2]),
+        (Shell::Fish, DOCS[3]),
+    ] {
+        let mut out = Vec::new();
+        clap_complete::generate(shell, &mut cmd.clone(), "sshuttle2", &mut out);
+        std::fs::write(dir.join(name), out)?;
+    }
+    for name in DOCS {
+        eprintln!("  {}", dir.join(name).display());
+    }
+    Ok(dir)
+}
+
+/// clap_mangen's sections, except that commands and examples are written
+/// here: its own would point to a man page per subcommand, and print the
+/// after_help examples as one unformatted block.
+fn man_page(cmd: &clap::Command) -> Result<Vec<u8>> {
+    let man = clap_mangen::Man::new(cmd.clone());
+    let mut out = Vec::new();
+    man.render_title(&mut out)?;
+    man.render_name_section(&mut out)?;
+    man.render_synopsis_section(&mut out)?;
+    man.render_description_section(&mut out)?;
+    man.render_options_section(&mut out)?;
+
+    out.extend(b".SH COMMANDS\n");
+    for sub in cmd.get_subcommands().filter(|s| !s.is_hide_set()) {
+        let about = sub.get_about().map(|a| a.to_string()).unwrap_or_default();
+        out.extend(
+            format!(
+                ".TP\n\\fBsshuttle2 {}\\fR\n{}\n",
+                sub.get_name(),
+                roff(&about)
+            )
+            .bytes(),
+        );
+    }
+
+    // after_help is "Examples:", then "  COMMAND   WHAT IT DOES" lines.
+    out.extend(b".SH EXAMPLES\n");
+    let after = cmd
+        .get_after_help()
+        .map(|a| a.to_string())
+        .unwrap_or_default();
+    for line in after.lines().skip(1) {
+        let line = line.trim();
+        let (example, what) = line.split_once("  ").unwrap_or((line, ""));
+        out.extend(format!(".TP\n\\fB{}\\fR\n{}\n", roff(example), roff(what.trim())).bytes());
+    }
+
+    out.extend(b".SH SEE ALSO\n\\fBssh\\fR(1), \\fBssh_config\\fR(5)\n");
+    Ok(out)
+}
+
+/// Escapes text for roff: backslashes, hyphens (so they stay ASCII), and a
+/// leading dot or quote.
+fn roff(s: &str) -> String {
+    let s = s.replace('\\', "\\e").replace('-', "\\-");
+    if s.starts_with(['.', '\'']) {
+        format!("\\&{s}")
+    } else {
+        s
     }
 }
 
@@ -177,9 +274,10 @@ fn package(root: &Path, target: &str) -> Result<()> {
     let out = root.join("dist");
     std::fs::create_dir_all(&out)?;
 
+    let docs = docs(root)?;
     let name = format!("sshuttle2-{VERSION}-{os}-{arch}");
     let tarball = out.join(format!("{name}.tar.gz"));
-    let files = [
+    let mut files = vec![
         (bin.clone(), "sshuttle2", 0o755),
         (root.join("LICENSE"), "LICENSE", 0o644),
         (
@@ -189,6 +287,7 @@ fn package(root: &Path, target: &str) -> Result<()> {
         ),
         (root.join("README.md"), "README.md", 0o644),
     ];
+    files.extend(DOCS.map(|doc| (docs.join(doc), doc, 0o644)));
     write_tarball(&tarball, &name, &files)?;
     eprintln!("  {}", tarball.display());
 

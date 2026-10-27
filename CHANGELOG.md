@@ -7,6 +7,7 @@ All notable changes to sshuttle2. The format is based on [Keep a Changelog](http
 ### Added
 
 - `ssh://` destinations, such as `sshuttle2 ssh://user@host:2222`.
+- A man page and shell completions for bash, zsh and fish, in every tarball, Linux package and the Homebrew formula.
 
 ### Changed
 
@@ -18,7 +19,7 @@ All notable changes to sshuttle2. The format is based on [Keep a Changelog](http
 
 ### Deprecated
 
-- `--method auto`, which now means tun, and `--udp`, which has no effect.
+- `--method auto`, which now means tun, and `--udp`, which has no effect. Both are hidden from `--help`.
 
 ### Fixed
 
