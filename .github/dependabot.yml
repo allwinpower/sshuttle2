@@ -9,9 +9,12 @@ updates:
       - "third_party/**"
     ignore:
       - dependency-name: ipstack
+    # One pull request for minor and patch updates, one for major ones.
     groups:
       cargo-minor-patch:
         update-types: [minor, patch]
+      cargo-major:
+        update-types: [major]
 
   - package-ecosystem: github-actions
     directory: /
@@ -20,3 +23,5 @@ updates:
     groups:
       actions-minor-patch:
         update-types: [minor, patch]
+      actions-major:
+        update-types: [major]
