@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # CPU cost of Linux client builds, on one Linux host: the numbers behind the
-# "Linux client and mimalloc" table in the README.
+# "Linux client allocator" table in docs/benchmarks.md.
 #
 #   scripts/alloc-bench.sh SERVER_BIN CLIENT_BIN...
 #

@@ -7,7 +7,7 @@ Two runs so far, both on 23 October 2026:
 - [After the far-path fix](#after-the-far-path-fix-1-round): 1 round, with the window brake (#15, released in 0.1.1). Single samples.
 - [Before it](#before-the-far-path-fix-3-rounds): 3 rounds, medians.
 
-A 3-round run with 0.1.2 is still to come (see the [TODO](../TODO.md) list). It will show whether 0.1.2 fixes tun mode's far upload, which so far is confirmed only in an emulated path.
+A 3-round run on the current release is tracked in [#36](https://github.com/allwinpower/sshuttle2/issues/36). It will show whether 0.1.2 fixes tun mode's far upload, which so far is confirmed only in an emulated path.
 
 ## After the far-path fix (1 round)
 
