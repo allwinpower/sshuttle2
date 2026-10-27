@@ -10,6 +10,7 @@ What changed in each release of sshuttle2. A release's section here becomes its 
 - **No networks means everything.** `sshuttle2 user@host` routes `0/0` (and in tun mode `::/0` and system DNS). Before, it stopped with an error.
 - `--dns` without networks used to send only DNS through the tunnel. It now routes everything; there is no DNS-only mode any more.
 - **Linux tun mode needs no iproute2.** The client sets the tun device's addresses and routes through netlink itself, instead of running the `ip` command.
+- **tun mode starts on IPv6 networks with a link-local router.** tun mode keeps the ssh server and `-x` networks on the route they have now. When that route went through a link-local IPv6 router (`fe80::1`, as router advertisements usually set up), adding it failed (on Linux with "Invalid argument") and tun mode did not start. An ssh server reached over IPv6 hit this on most networks with IPv6. The route now keeps the router's device, on Linux and macOS.
 
 ## [0.2.0] - 2026-10-26
 
