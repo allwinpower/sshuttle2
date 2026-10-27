@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions
+    url: https://github.com/allwinpower/sshuttle2/discussions
+    about: Ask how to use sshuttle2 in Discussions.
+  - name: Security problems
+    url: https://github.com/allwinpower/sshuttle2/security/advisories/new
+    about: Report a vulnerability privately.
