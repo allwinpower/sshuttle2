@@ -26,6 +26,10 @@ package() {
   cd "sshuttle2-$pkgver-linux-$cpu"
   install -Dm755 sshuttle2 "$pkgdir/usr/bin/sshuttle2"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 doc/sshuttle2.1 "$pkgdir/usr/share/man/man1/sshuttle2.1"
+  install -Dm644 complete/sshuttle2.bash "$pkgdir/usr/share/bash-completion/completions/sshuttle2"
+  install -Dm644 complete/_sshuttle2 "$pkgdir/usr/share/zsh/site-functions/_sshuttle2"
+  install -Dm644 complete/sshuttle2.fish "$pkgdir/usr/share/fish/vendor_completions.d/sshuttle2.fish"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 LICENSE-ipstack "$pkgdir/usr/share/licenses/$pkgname/LICENSE-ipstack"
 }
