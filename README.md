@@ -6,7 +6,7 @@
 
 A VPN over a plain SSH login. Written in Rust, inspired by [sshuttle](https://github.com/sshuttle/sshuttle).
 
-If you can log in to a server with SSH, sshuttle2 sends your traffic through it: TCP and DNS, and in tun mode all UDP too. You install nothing on the server and need no root there. On first run the client uploads a small server program over SSH. The server can be Linux or macOS.
+If you can log in to a server with SSH, sshuttle2 sends your traffic through it: TCP, all UDP, DNS and IPv6. You install nothing on the server and need no root there. On first run the client uploads a small server program over SSH. The server can be Linux or macOS.
 
 **Why it exists:** a hospital Wi-Fi blocked AI tools, every VPN and Wikipedia. Only SSH got through, and sshuttle was too slow to work with. The story: **[allwinpower.github.io/sshuttle2](https://allwinpower.github.io/sshuttle2/)** (also in [STORY.md](STORY.md)).
 
@@ -67,9 +67,9 @@ Reproduce on Linux, with Linux builds of the server and of each client: `scripts
 
 | Mode | Platform | Carries | Tested |
 |---|---|---|---|
-| pf | macOS | TCP, DNS | live, on a Mac |
-| nft | Linux | TCP, DNS | Linux containers, in CI |
-| tun | macOS, Linux | TCP, all UDP, DNS, IPv6 | live on a Mac; Linux containers, in CI |
+| tun (the default) | macOS, Linux | TCP, all UDP, DNS, IPv6 | live on a Mac; Linux containers, in CI |
+| pf (`--method pf`) | macOS | TCP, DNS | live, on a Mac |
+| nft (`--method nft`) | Linux | TCP, DNS | Linux containers, in CI |
 | SOCKS5 | macOS, Linux | TCP (CONNECT), UDP (ASSOCIATE) | in CI |
 
 Every mode works with either server:
@@ -119,28 +119,26 @@ These packages do not update themselves: install the next release's file the sam
 
 ## Use
 
-Send everything through `host`: all IPv4 TCP, plus DNS lookups.
+Send everything through `host`: TCP, all UDP (QUIC/HTTP3, video calls, games), DNS and IPv6.
 
 ```bash
-sshuttle2 -r user@host 0/0 --dns
+sshuttle2 user@host
 ```
 
-It asks for your password, because the firewall rules need root. The rules are removed when it exits, even if it crashes.
+`sshuttle2 -r user@host` and `sshuttle2 ssh://user@host:2222` do the same. It asks for your password, because the virtual network device (tun) and the routes need root. They are removed when it exits, even if it crashes.
 
-On macOS this uses pf. On Linux the same command uses nftables, so the `nft` command must be installed; with `--dns`, a local stub resolver such as systemd-resolved's `127.0.0.53` is redirected too.
+If the server has no IPv6, IPv6 connections are refused at once, so apps fall back to IPv4 without leaking. DNS queries from any app go to the server's resolver. On Linux, tun mode needs the `ip` command (iproute2), and the system resolver is pointed at the tunnel with `resolvectl` when systemd-resolved is in use; otherwise a warning says that system DNS is not redirected.
 
-Tunnel UDP too (QUIC/HTTP3, video calls, games). This uses a virtual network device (tun) instead of the firewall:
+Route only some networks by naming them after the host:
 
 ```bash
-sshuttle2 -r user@host 0/0 --udp
+sshuttle2 user@host 10.0.0.0/8 192.168.1.0/24
 ```
-
-In tun mode, `0/0` also covers IPv6. If the server has no IPv6, IPv6 connections are refused at once, so apps fall back to IPv4 without leaking. DNS queries from any app go to the server's resolver. On Linux, the system resolver is pointed at the tunnel with `resolvectl` when systemd-resolved is in use; otherwise a warning says that system DNS is not redirected.
 
 Keep some networks out with `-x`, repeatable:
 
 ```bash
-sshuttle2 -r user@host 0/0 -x 192.168.0.0/16 -x 10.0.0.0/8
+sshuttle2 user@host -x 192.168.0.0/16 -x 10.0.0.0/8
 ```
 
 The ssh server's own address is always kept out. If a session ever leaves rules behind, remove them:
@@ -149,10 +147,19 @@ The ssh server's own address is always kept out. If a session ever leaves rules 
 sshuttle2 cleanup
 ```
 
+**TCP-only firewall modes (`--method pf|nft`).** These capture traffic with the firewall instead of a tun device: pf on macOS, nftables on Linux. They carry TCP and DNS only: other UDP goes around the tunnel, and so does IPv6 unless you add `::/0`. Use them where tun does not work.
+
+```bash
+sshuttle2 user@host --method pf --dns     # macOS
+sshuttle2 user@host --method nft --dns    # Linux
+```
+
+nft mode needs the `nft` command. With `--dns`, a local stub resolver such as systemd-resolved's `127.0.0.53` is redirected too.
+
 **Proxy only, no root.** Run a SOCKS5 proxy instead:
 
 ```bash
-sshuttle2 -r user@host --socks5 127.0.0.1:1080
+sshuttle2 user@host --socks5 127.0.0.1:1080
 ```
 
 Point apps at it. Names are resolved on the server:
@@ -167,12 +174,12 @@ The client runs your normal `ssh`, so `~/.ssh/config`, keys, the agent and Proxy
 
 | Option | Meaning |
 |---|---|
-| `-r HOST` | `[user@]host[:port]` or an ssh config alias. `local` runs the server as a local process instead (for testing). |
-| `SUBNETS` | Networks to route: `0/0`, `10.0.0.0/8`, `10/8`, a host name. |
+| `HOST` or `-r HOST` | `[user@]host[:port]`, `ssh://[user@]host[:port]` or an ssh config alias. Without `-r`, the host is the first argument. `local` runs the server as a local process instead (for testing). |
+| `SUBNETS` | Networks to route, after the host: `10.0.0.0/8`, `10/8`, `0/0`, a host name. None: everything. |
 | `-x NET` | Keep a network out of the tunnel. Repeatable. |
 | `--dns` | Send DNS queries to your system's nameservers through the tunnel. |
-| `--udp` | tun mode: TCP, UDP and DNS. Same as `--method tun`. |
-| `--method M` | `pf` (macOS, TCP and DNS), `nft` (Linux, TCP and DNS), `tun`, or `auto` (pf or nft unless `--udp`). |
+| `--method M` | `tun` (the default: TCP, all UDP, DNS, IPv6), or `pf` (macOS) or `nft` (Linux) for TCP and DNS only. |
+| `--udp` | Does nothing: tun is the default. Kept so old command lines work. |
 | `--socks5 ADDR` | Run a SOCKS5 proxy instead of capturing traffic. Supports CONNECT and UDP ASSOCIATE. |
 | `-e CMD` | ssh command and extra options, e.g. `-e "ssh -i ~/.ssh/work"`. |
 | `--to-ns IP[:PORT]` | DNS server the remote side should use. |
@@ -182,7 +189,7 @@ The client runs your normal `ssh`, so `~/.ssh/config`, keys, the agent and Proxy
 
 - The client starts your `ssh` and runs `sshuttle2-server` on the server. That one SSH session carries every connection.
 - Each connection gets its own lane with its own flow control, so one big download doesn't block the rest. Each lane's window grows while it limits the speed and shrinks when it only builds a queue, so a slow or distant server does not leave seconds of data queued in front of every other connection.
-- pf (macOS) or nftables (Linux) redirects TCP and DNS to the client. tun mode uses a virtual network device and a user-space TCP/IP stack ([ipstack](https://github.com/narrowlink/ipstack), vendored with a patch in [third_party/ipstack](third_party/ipstack/PATCHES.md)).
+- tun mode, the default, uses a virtual network device and a user-space TCP/IP stack ([ipstack](https://github.com/narrowlink/ipstack), vendored with a patch in [third_party/ipstack](third_party/ipstack/PATCHES.md)). In pf mode (macOS) or nft mode (Linux) the firewall redirects TCP and DNS to the client.
 - No Python anywhere: both ends are compiled Rust. The servers (static Linux, and macOS) are embedded in the client.
 - Wire format: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 

@@ -42,21 +42,27 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
     version,
     about = "A VPN over a plain SSH login (written in Rust, inspired by sshuttle)",
     args_conflicts_with_subcommands = true,
+    override_usage = "sshuttle2 [OPTIONS] HOST [SUBNETS]...\n       \
+        sshuttle2 [OPTIONS] -r HOST [SUBNETS]...\n       \
+        sshuttle2 <COMMAND>",
     after_help = "Examples:\n  \
-        sshuttle2 -r user@host 0/0 --dns          everything (IPv4 TCP + DNS) via host\n  \
-        sshuttle2 -r user@host 10.0.0.0/8         one network\n  \
-        sshuttle2 -r user@host --socks5 127.0.0.1:1080   proxy only, no root"
+        sshuttle2 user@host                       everything (TCP, UDP, DNS, IPv6) via host\n  \
+        sshuttle2 ssh://user@host:2222            the same, as a URL\n  \
+        sshuttle2 user@host 10.0.0.0/8            one network\n  \
+        sshuttle2 user@host --socks5 127.0.0.1:1080   proxy only, no root"
 )]
 struct Cli {
     #[command(subcommand)]
     cmd: Option<Cmd>,
 
-    /// ssh destination: [user@]host[:port] or an ssh config alias.
+    /// ssh destination: [user@]host[:port], ssh://[user@]host[:port] or an
+    /// ssh config alias. Without -r, the first argument is the host.
     /// "local" runs the server as a local process instead (for testing).
     #[arg(short = 'r', long = "remote", value_name = "HOST")]
     remote: Option<String>,
 
-    /// Networks to send through the tunnel, e.g. 0/0 or 10.0.0.0/8.
+    /// Networks to send through the tunnel, e.g. 10.0.0.0/8 (default:
+    /// everything). Without -r, the host comes first.
     #[arg(value_name = "SUBNETS")]
     subnets: Vec<String>,
 
@@ -77,13 +83,13 @@ struct Cli {
     #[arg(long)]
     pf_fix_loopback: bool,
 
-    /// How to capture traffic: pf (macOS) or nft (Linux) for TCP and DNS
-    /// through the firewall, tun for TCP, all UDP and DNS through a virtual
-    /// network device, or auto (pf or nft, unless --udp).
-    #[arg(long, value_enum, default_value_t = Method::Auto)]
+    /// How to capture traffic: tun for TCP, all UDP, DNS and IPv6 through a
+    /// virtual network device, or pf (macOS) or nft (Linux) for TCP and DNS
+    /// only, through the firewall.
+    #[arg(long, value_enum, default_value_t = Method::Tun)]
     method: Method,
 
-    /// Tunnel UDP too (QUIC, calls, games). Same as --method tun.
+    /// Tunnel UDP too. Does nothing now: tun is the default.
     #[arg(long)]
     udp: bool,
 
@@ -121,6 +127,8 @@ struct Cli {
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 enum Method {
+    /// Same as tun; kept so old command lines still parse.
+    #[value(hide = true)]
     Auto,
     Pf,
     Nft,
@@ -230,16 +238,29 @@ fn cleanup() -> ExitCode {
     }
 }
 
-async fn run(cli: Cli) -> Result<()> {
+async fn run(mut cli: Cli) -> Result<()> {
     raise_fd_limit();
-    let remote = cli
-        .remote
-        .clone()
-        .context("-r/--remote is required (see --help)")?;
+    let remote = match cli.remote.take() {
+        Some(r) => r,
+        None => host_from_args(&mut cli.subnets)?,
+    };
+    let remote = transport::normalize_remote(&remote)?;
     match cli.socks5 {
         Some(socks) => run_socks(cli, remote, socks).await,
         None => run_transparent(cli, remote).await,
     }
+}
+
+/// Without -r, the first positional argument is the host and the rest are
+/// the networks.
+fn host_from_args(args: &mut Vec<String>) -> Result<String> {
+    let Some(first) = args.first() else {
+        bail!("say where to connect: `sshuttle2 user@host` (see --help)");
+    };
+    if first.contains('/') && first.parse::<Cidr>().is_ok() {
+        bail!("missing host: put it first, e.g. `sshuttle2 user@host 10.0.0.0/8`");
+    }
+    Ok(args.remove(0))
 }
 
 fn tunnel_opts(cli: &Cli, remote: &str) -> transport::TunnelOpts {
@@ -283,23 +304,20 @@ async fn run_socks(cli: Cli, remote: String, socks: SocketAddr) -> Result<()> {
     Ok(())
 }
 
-/// Capture traffic for the given networks with the firewall.
+/// Capture traffic for the given networks with a tun device or the firewall.
 async fn run_transparent(cli: Cli, remote: String) -> Result<()> {
     let method = match (cli.method, cli.udp) {
         (Method::Pf | Method::Nft, true) => {
             bail!("--udp needs --method tun (pf and nft cannot carry UDP)")
         }
-        (Method::Tun, _) | (Method::Auto, true) => Method::Tun,
-        (Method::Auto, false) => {
-            if cfg!(target_os = "macos") {
-                Method::Pf
-            } else if cfg!(target_os = "linux") {
-                Method::Nft
-            } else {
-                Method::Tun
-            }
-        }
-        (m, false) => m,
+        (Method::Auto, _) => Method::Tun,
+        (m, _) => m,
+    };
+    // The firewall mode that works where tun does not.
+    let firewall = if cfg!(target_os = "macos") {
+        "pf"
+    } else {
+        "nft"
     };
     if method == Method::Pf && !cfg!(target_os = "macos") {
         bail!("--method pf is macOS only; use --method nft or tun");
@@ -311,13 +329,19 @@ async fn run_transparent(cli: Cli, remote: String) -> Result<()> {
     if method == Method::Nft && helper::which("nft").is_none() {
         bail!("the nft command was not found: install nftables, or use --method tun");
     }
-    debug!("capture method: {method:?}");
-    if cli.subnets.is_empty() && !cli.dns {
-        bail!("say which networks to route, e.g. 0/0 (everything), or use --socks5 ADDR");
+    if method == Method::Tun && cfg!(target_os = "linux") && helper::which("ip").is_none() {
+        bail!("the ip command was not found: install iproute2, or use --method nft");
     }
+    debug!("capture method: {method:?}");
     let tun = method == Method::Tun;
+    // No networks named: everything.
+    let subnets = if cli.subnets.is_empty() {
+        vec!["0/0".to_string()]
+    } else {
+        cli.subnets.clone()
+    };
     let mut routes = Vec::new();
-    for s in &cli.subnets {
+    for s in &subnets {
         for net in subnet::parse_or_resolve(s)? {
             routes.push(Route {
                 net,
@@ -337,6 +361,7 @@ async fn run_transparent(cli: Cli, remote: String) -> Result<()> {
             exclude: false,
         });
     }
+    let routed: Vec<String> = routes.iter().map(|r| r.net.to_string()).collect();
     for s in &cli.exclude {
         for net in subnet::parse_or_resolve(s)? {
             routes.push(Route { net, exclude: true });
@@ -417,7 +442,7 @@ async fn run_transparent(cli: Cli, remote: String) -> Result<()> {
             }
             Err(e) => {
                 helper.shutdown().await;
-                return Err(e.context("setting up the tun device"));
+                bail!("setting up the tun device: {e:#}; or use --method {firewall}");
             }
         }
     } else {
@@ -430,7 +455,7 @@ async fn run_transparent(cli: Cli, remote: String) -> Result<()> {
     let server_ipv6 = tunnel.server_hello.get("ipv6") == Some("1");
     info!(
         "connected to {remote}; routing {}{}{}",
-        cli.subnets.join(" "),
+        routed.join(" "),
         if tun { " (TCP and UDP)" } else { " (TCP)" },
         if cli.dns {
             format!(" and DNS ({} servers)", nameservers.len())
@@ -561,5 +586,27 @@ fn raise_fd_limit() {
             lim.rlim_cur = want;
             libc::setrlimit(libc::RLIMIT_NOFILE, &lim);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_comes_first() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let mut a = args(&["user@host", "10/8"]);
+        assert_eq!(host_from_args(&mut a).unwrap(), "user@host");
+        assert_eq!(a, args(&["10/8"]));
+        // A bare address is a host, not a network.
+        let mut a = args(&["10.1.2.3"]);
+        assert_eq!(host_from_args(&mut a).unwrap(), "10.1.2.3");
+        assert!(a.is_empty());
+        let mut a = args(&["ssh://host/x"]);
+        assert_eq!(host_from_args(&mut a).unwrap(), "ssh://host/x");
+        assert!(host_from_args(&mut args(&["0/0"])).is_err());
+        assert!(host_from_args(&mut args(&["10.0.0.0/8", "host"])).is_err());
+        assert!(host_from_args(&mut vec![]).is_err());
     }
 }

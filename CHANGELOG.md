@@ -2,6 +2,14 @@
 
 What changed in each release of sshuttle2. A release's section here becomes its GitHub Release notes ([docs/RELEASING.md](docs/RELEASING.md)).
 
+## [Unreleased]
+
+- **tun mode is the default.** It carries TCP, all UDP, DNS and IPv6, so nothing leaks around the tunnel. Before, the default was pf (macOS) or nft (Linux), which carry only TCP and DNS. For the old behaviour, add `--method pf` or `--method nft`. `--method auto` still parses and means tun; `--udp` does nothing.
+- **The host needs no `-r`.** `sshuttle2 user@host` works; the first argument is the host, the rest are networks. `-r user@host` works as before.
+- **`ssh://` URLs**, such as `sshuttle2 ssh://user@host:2222`.
+- **No networks means everything.** `sshuttle2 user@host` routes `0/0` (and in tun mode `::/0` and system DNS). Before, it stopped with an error.
+- `--dns` without networks used to send only DNS through the tunnel. It now routes everything; there is no DNS-only mode any more.
+
 ## [0.2.0] - 2026-10-26
 
 - **macOS servers.** The server can now be a Mac (Apple Silicon or Intel) with Remote Login on, not only Linux. The client picks the server binary by the remote host's system and CPU. Each client is about 2.2 MB larger, as it carries the two macOS servers too.
