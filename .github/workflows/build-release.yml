@@ -57,7 +57,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: packaging/release-notes.sh "$VERSION" >notes.md && cat notes.md
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-notes
           path: notes.md
@@ -80,7 +80,7 @@ jobs:
         with:
           tool: cargo-zigbuild
       - run: cargo xtask servers
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: servers
           path: dist/server/
@@ -144,7 +144,7 @@ jobs:
           cargo xtask client "$TARGET"
           "target/$TARGET/release/sshuttle2" --version
           cargo xtask package "$TARGET"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: files-linux-${{ matrix.nfpm }}
           path: dist/sshuttle2*
@@ -178,7 +178,7 @@ jobs:
           else
             echo "::notice::No Rosetta on this runner, so the x86_64 build was not run"
           fi
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: files-macos
           path: dist/sshuttle2*
@@ -209,7 +209,7 @@ jobs:
           want=12
           [[ $VERSION == *-* ]] && want=10
           [ "$(wc -l <SHA256SUMS)" -eq "$want" ] || { echo "::error::expected $want release files"; exit 1; }
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release
           path: dist/
