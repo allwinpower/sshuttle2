@@ -20,7 +20,10 @@ pub const TUN_PEER_V4: &str = "198.18.0.2";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Via {
-    Gateway(IpAddr),
+    /// A gateway, and the device it is on when known. A link-local IPv6
+    /// gateway (`fe80::1`, as router advertisements give) means nothing
+    /// without its device: the kernel refuses such a route.
+    Gateway(IpAddr, Option<String>),
     Interface(String),
 }
 
@@ -99,16 +102,23 @@ mod os {
             out.lines()
                 .find_map(|l| l.trim().strip_prefix(name).map(|v| v.trim().to_string()))
         };
-        if let Some(gw) = field("gateway:")
-            && let Ok(ip) = gw.split('%').next().unwrap_or("").parse::<IpAddr>()
-        {
-            return Some(Via::Gateway(ip));
+        // A link-local gateway comes with its scope: `fe80::1%en0`.
+        if let Some(gw) = field("gateway:") {
+            let (ip, scope) = match gw.split_once('%') {
+                Some((ip, scope)) => (ip, Some(scope.to_string())),
+                None => (gw.as_str(), None),
+            };
+            if let Ok(ip) = ip.parse::<IpAddr>() {
+                return Some(Via::Gateway(ip, scope));
+            }
         }
         field("interface:").map(Via::Interface)
     }
 
     /// `route -n <verb> -inet|-inet6 -net <net> <gateway | -interface IF>`.
-    /// Flags go before the verb: `route add -n` is rejected.
+    /// Flags go before the verb: `route add -n` is rejected. An IPv6
+    /// gateway's device goes in as its scope (`fe80::1%en0`); `-ifscope`
+    /// would instead make a route only sockets bound to that device use.
     pub fn args(verb: &str, net: Cidr, via: &Via) -> Vec<String> {
         let fam = if net.is_ipv6() { "-inet6" } else { "-inet" };
         let mut a = vec![
@@ -119,7 +129,8 @@ mod os {
             net.to_string(),
         ];
         match via {
-            Via::Gateway(gw) => a.push(gw.to_string()),
+            Via::Gateway(IpAddr::V6(gw), Some(dev)) => a.push(format!("{gw}%{dev}")),
+            Via::Gateway(gw, _) => a.push(gw.to_string()),
             Via::Interface(i) => {
                 a.push("-interface".into());
                 a.push(i.clone());
@@ -224,27 +235,28 @@ mod os {
         via.with_context(|| format!("no route to {ip}"))
     }
 
-    /// The next hop in the kernel's answer to a route lookup: its gateway,
-    /// or else its device (`name` turns the index into a name).
+    /// The next hop in the kernel's answer to a route lookup: its gateway
+    /// and device, or else its device (`name` turns the index into a name).
     pub fn via_of(r: &RouteMessage, name: impl Fn(u32) -> Option<String>) -> Option<Via> {
-        let mut oif = None;
+        let (mut gateway, mut oif) = (None, None);
         for a in &r.attributes {
             match a {
-                RouteAttribute::Gateway(RouteAddress::Inet(g)) => {
-                    return Some(Via::Gateway((*g).into()));
-                }
-                RouteAttribute::Gateway(RouteAddress::Inet6(g)) => {
-                    return Some(Via::Gateway((*g).into()));
-                }
+                RouteAttribute::Gateway(RouteAddress::Inet(g)) => gateway = Some((*g).into()),
+                RouteAttribute::Gateway(RouteAddress::Inet6(g)) => gateway = Some((*g).into()),
                 RouteAttribute::Oif(i) => oif = Some(*i),
                 _ => {}
             }
         }
-        oif.and_then(name).map(Via::Interface)
+        let dev = oif.and_then(name);
+        match gateway {
+            Some(g) => Some(Via::Gateway(g, dev)),
+            None => dev.map(Via::Interface),
+        }
     }
 
-    /// What `ip route add|del` sends: the main table; on adding, a unicast
-    /// route of protocol "boot", scope link when it names only a device.
+    /// What `ip route add|del ... [via G] [dev D]` sends: the main table; on
+    /// adding, a unicast route of protocol "boot", scope link when it names
+    /// only a device.
     pub fn route_message(net: Cidr, via: &Via, add: bool) -> Result<RouteMessage> {
         let mut m = RouteMessage::default();
         let h = &mut m.header;
@@ -265,16 +277,23 @@ mod os {
             m.attributes
                 .push(RouteAttribute::Destination(net.ip.into()));
         }
-        m.attributes.push(match via {
-            Via::Gateway(g) => RouteAttribute::Gateway((*g).into()),
-            Via::Interface(i) => RouteAttribute::Oif(index(i)?),
-        });
+        let dev = match via {
+            Via::Gateway(g, dev) => {
+                m.attributes.push(RouteAttribute::Gateway((*g).into()));
+                dev.as_deref()
+            }
+            Via::Interface(i) => Some(i.as_str()),
+        };
+        if let Some(dev) = dev {
+            m.attributes.push(RouteAttribute::Oif(index(dev)?));
+        }
         Ok(m)
     }
 
     fn describe(via: &Via) -> String {
         match via {
-            Via::Gateway(g) => format!("via {g}"),
+            Via::Gateway(g, Some(d)) => format!("via {g} dev {d}"),
+            Via::Gateway(g, None) => format!("via {g}"),
             Via::Interface(i) => format!("dev {i}"),
         }
     }
@@ -473,11 +492,18 @@ impl TunRoutes {
     pub fn records(&self) -> Vec<String> {
         self.added
             .iter()
-            .map(|(net, via)| match via {
-                Via::Gateway(g) => format!("route {net} gw {g}"),
-                Via::Interface(i) => format!("route {net} if {i}"),
-            })
+            .map(|(net, via)| record(*net, via))
             .collect()
+    }
+}
+
+/// The crash-cleanup record of one route: `route NET gw G [dev D]` or
+/// `route NET if D`.
+fn record(net: Cidr, via: &Via) -> String {
+    match via {
+        Via::Gateway(g, Some(d)) => format!("route {net} gw {g} dev {d}"),
+        Via::Gateway(g, None) => format!("route {net} gw {g}"),
+        Via::Interface(i) => format!("route {net} if {i}"),
     }
 }
 
@@ -598,19 +624,23 @@ pub fn remove_system_dns(key: &str) {
 
 /// Removes one route from a crash-cleanup record line.
 pub fn delete_recorded(line: &str) {
-    let w: Vec<&str> = line.split_whitespace().collect();
-    if let [net, kind, target] = w[..]
-        && let Ok(net) = net.parse::<Cidr>()
-    {
-        let via = match kind {
-            "gw" => match target.parse() {
-                Ok(ip) => Via::Gateway(ip),
-                Err(_) => return,
-            },
-            _ => Via::Interface(target.to_string()),
-        };
+    if let Some((net, via)) = parse_record(line) {
         let _ = os::delete(net, &via);
     }
+}
+
+/// A `records()` line without its `route ` word. Lines from before
+/// gateways kept their device (`NET gw G`) still parse.
+fn parse_record(line: &str) -> Option<(Cidr, Via)> {
+    let w: Vec<&str> = line.split_whitespace().collect();
+    let (net, rest) = w.split_first()?;
+    let via = match rest {
+        ["gw", g] => Via::Gateway(g.parse().ok()?, None),
+        ["gw", g, "dev", d] => Via::Gateway(g.parse().ok()?, Some(d.to_string())),
+        ["if", d] => Via::Interface(d.to_string()),
+        _ => return None,
+    };
+    Some((net.parse().ok()?, via))
 }
 
 #[cfg(test)]
@@ -628,6 +658,37 @@ mod tests {
         assert_eq!(s("0/0"), ["0.0.0.0/1", "128.0.0.0/1"]);
         assert_eq!(s("::/0"), ["::/1", "8000::/1"]);
         assert_eq!(s("10/8"), ["10.0.0.0/8"]);
+    }
+
+    /// Crash-cleanup records parse back to the route they undo, including
+    /// lines written before gateways kept their device.
+    #[test]
+    fn route_records() {
+        let net: Cidr = "2001:db8::/32".parse().unwrap();
+        let fe80 = "fe80::1".parse().unwrap();
+        for (via, line) in [
+            (
+                Via::Gateway(fe80, Some("eth0".into())),
+                "route 2001:db8::/32 gw fe80::1 dev eth0",
+            ),
+            (Via::Gateway(fe80, None), "route 2001:db8::/32 gw fe80::1"),
+            (
+                Via::Interface("utun4".into()),
+                "route 2001:db8::/32 if utun4",
+            ),
+        ] {
+            assert_eq!(record(net, &via), line);
+            assert_eq!(parse_record(&line["route ".len()..]), Some((net, via)));
+        }
+        for bad in [
+            "",
+            "10.0.0.0/8",
+            "10.0.0.0/8 gw",
+            "10.0.0.0/8 gw x",
+            "x if eth0",
+        ] {
+            assert_eq!(parse_record(bad), None, "{bad:?}");
+        }
     }
 
     /// The user's first live run failed on `route add -q -n ...`: macOS
@@ -656,11 +717,28 @@ mod tests {
         let a = os::args(
             "delete",
             "1.2.3.4/32".parse().unwrap(),
-            &Via::Gateway("10.0.0.1".parse().unwrap()),
+            &Via::Gateway("10.0.0.1".parse().unwrap(), None),
         );
         assert_eq!(
             a,
             ["-n", "delete", "-inet", "-net", "1.2.3.4/32", "10.0.0.1"]
+        );
+        // A link-local gateway keeps its scope, or route(8) fails.
+        let a = os::args(
+            "add",
+            "2001:db8::/32".parse().unwrap(),
+            &Via::Gateway("fe80::1".parse().unwrap(), Some("en0".into())),
+        );
+        assert_eq!(
+            a,
+            [
+                "-n",
+                "add",
+                "-inet6",
+                "-net",
+                "2001:db8::/32",
+                "fe80::1%en0"
+            ]
         );
     }
 
@@ -670,7 +748,12 @@ mod tests {
         let out = "   route to: 203.0.113.10\ndestination: default\n       mask: default\n    gateway: 192.168.1.1\n  interface: en0\n      flags: <UP,GATEWAY,DONE,STATIC,PRCLONING>\n";
         assert_eq!(
             os::parse_route_get(out),
-            Some(Via::Gateway("192.168.1.1".parse().unwrap()))
+            Some(Via::Gateway("192.168.1.1".parse().unwrap(), None))
+        );
+        let v6 = "   route to: 2001:db8::10\ndestination: default\n       mask: default\n    gateway: fe80::1%en0\n  interface: en0\n      flags: <UP,GATEWAY,DONE,STATIC,PRCLONING>\n";
+        assert_eq!(
+            os::parse_route_get(v6),
+            Some(Via::Gateway("fe80::1".parse().unwrap(), Some("en0".into())))
         );
         let onlink = "   route to: 192.168.1.20\ndestination: 192.168.1.0\n  interface: en0\n";
         assert_eq!(
@@ -685,7 +768,7 @@ mod tests {
     #[test]
     fn linux_route_requests() {
         use netlink_packet_core::{NLM_F_CREATE, NLM_F_EXCL};
-        let gw = |ip: &str| Via::Gateway(ip.parse().unwrap());
+        let gw = |ip: &str| Via::Gateway(ip.parse().unwrap(), None);
         let add = |net: &str, via: Via| {
             let m = os::route_message(net.parse().unwrap(), &via, true).unwrap();
             os::encode(libc::RTM_NEWROUTE, NLM_F_CREATE | NLM_F_EXCL, &[&m])
@@ -717,6 +800,19 @@ mod tests {
         want.extend([0; 13]);
         want.push(1);
         assert_eq!(os::encode(libc::RTM_DELROUTE, 0, &[&m.unwrap()]), want);
+
+        // A gateway with its device, as `ip route add ... via fe80::1 dev lo`
+        // sends it: without the device the kernel refuses a link-local one.
+        let via = Via::Gateway("fe80::1".parse().unwrap(), Some("lo".into()));
+        let mut want = header(76, 24, [0x05, 0x06]).to_vec();
+        want.extend([10, 32, 0, 0, 254, 3, 0, 1, 0, 0, 0, 0]); // main, boot, universe, unicast
+        want.extend([20, 0, 1, 0, 0x20, 0x01, 0x0d, 0xb8]); // RTA_DST
+        want.extend([0; 12]);
+        want.extend([20, 0, 5, 0, 0xfe, 0x80]); // RTA_GATEWAY
+        want.extend([0; 13]);
+        want.push(1);
+        want.extend([8, 0, 4, 0, 1, 0, 0, 0]); // RTA_OIF
+        assert_eq!(add("2001:db8::/32", via), want);
     }
 
     /// Kernel replies to RTM_GETROUTE: the route, then the acknowledgement.
@@ -744,7 +840,7 @@ mod tests {
             b
         };
         let name = |i: u32| (i == 2).then(|| "eth0".to_string());
-        let via = |datagrams: &[Vec<u8>]| {
+        let route = |datagrams: &[Vec<u8>]| {
             let mut routes = Vec::new();
             for (i, d) in datagrams.iter().enumerate() {
                 let done = os::take_replies(d, &mut routes).unwrap();
@@ -753,14 +849,17 @@ mod tests {
             let [r] = &routes[..] else {
                 panic!("{routes:?}")
             };
-            os::via_of(r, name)
+            r.clone()
         };
+        let r = route(&[[reply(true), ack(0)].concat()]);
+        let gw = "10.0.0.1".parse().unwrap();
         assert_eq!(
-            via(&[[reply(true), ack(0)].concat()]),
-            Some(Via::Gateway("10.0.0.1".parse().unwrap()))
+            os::via_of(&r, name),
+            Some(Via::Gateway(gw, Some("eth0".into())))
         );
+        assert_eq!(os::via_of(&r, |_| None), Some(Via::Gateway(gw, None)));
         assert_eq!(
-            via(&[reply(false), ack(0)]),
+            os::via_of(&route(&[reply(false), ack(0)]), name),
             Some(Via::Interface("eth0".into()))
         );
         let e = os::take_replies(&ack(-libc::EEXIST), &mut Vec::new()).unwrap_err();
