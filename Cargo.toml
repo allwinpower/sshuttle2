@@ -9,8 +9,15 @@ exclude = ["third_party"]
 [workspace.package]
 version = "0.2.0"
 edition = "2024"
+rust-version = "1.88"
 license = "LGPL-2.1-or-later"
 repository = "https://github.com/allwinpower/sshuttle2"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
 
 [workspace.dependencies]
 sshuttle2-core = { path = "crates/core" }

@@ -1,0 +1,33 @@
+# cargo-deny's checks of the dependency tree, run by the deny job in
+# .github/workflows/ci.yml: cargo deny check advisories licenses sources
+
+[graph]
+# The platforms sshuttle2 builds for. Crates that only other targets pull in
+# are not checked.
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-unknown-linux-musl",
+  "aarch64-unknown-linux-musl",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+]
+
+[advisories]
+# An advisory accepted for now goes here with the reason.
+ignore = []
+
+[licenses]
+# The licenses the tree uses, all of them compatible with LGPL-2.1-or-later.
+allow = [
+  "Apache-2.0",
+  "MIT",
+  "LGPL-2.1-or-later",
+  "Unicode-3.0",
+]
+
+[sources]
+# crates.io only. ipstack comes from third_party/ through [patch.crates-io]:
+# a path, which is not a source, so it needs no entry here.
+unknown-registry = "deny"
+unknown-git = "deny"

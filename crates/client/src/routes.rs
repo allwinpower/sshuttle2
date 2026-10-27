@@ -328,6 +328,7 @@ mod os {
 
     fn index(ifname: &str) -> Result<u32> {
         let c = CString::new(ifname)?;
+        // SAFETY: `c` is a NUL-terminated string that outlives the call.
         match unsafe { libc::if_nametoindex(c.as_ptr()) } {
             0 => Err(io::Error::last_os_error()).with_context(|| format!("no device {ifname}")),
             i => Ok(i),
@@ -336,10 +337,13 @@ mod os {
 
     fn name(index: u32) -> Option<String> {
         let mut buf = [0 as libc::c_char; libc::IF_NAMESIZE];
+        // SAFETY: `buf` is IF_NAMESIZE bytes, as if_indextoname requires.
         let p = unsafe { libc::if_indextoname(index, buf.as_mut_ptr()) };
         if p.is_null() {
             return None;
         }
+        // SAFETY: not null, so `p` points into `buf`, which now holds a
+        // NUL-terminated name.
         Some(unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned())
     }
 

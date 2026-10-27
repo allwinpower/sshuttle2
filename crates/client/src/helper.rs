@@ -153,6 +153,7 @@ impl Helper {
         let sock = dir.join("helper.sock");
         let listener = UnixListener::bind(&sock)?;
         let exe = std::env::current_exe()?;
+        // SAFETY: geteuid has no preconditions and cannot fail.
         let root = unsafe { libc::geteuid() } == 0;
         let mut cmd = if root {
             Command::new(&exe)
@@ -346,6 +347,7 @@ extern "C" fn forward_signal(_: libc::c_int) {
     // cleanup happens then.
     let pid = CLIENT_PID.load(std::sync::atomic::Ordering::Relaxed);
     if pid > 0 {
+        // SAFETY: kill is async-signal-safe and takes no pointers.
         unsafe { libc::kill(pid, libc::SIGINT) };
     }
 }
@@ -552,6 +554,8 @@ fn write_state(path: &Path, what: &str, tokens: &[String], routes: &[String]) {
 /// working. The child keeps only the socket; its log goes over it.
 fn detach() -> Result<()> {
     let mut fds = [0i32; 2];
+    // SAFETY: the helper is single-threaded here, so the child may run any
+    // code after fork; every pointer passed is to a live local.
     unsafe {
         if libc::pipe(fds.as_mut_ptr()) != 0 {
             return Err(std::io::Error::last_os_error()).context("pipe");
@@ -620,6 +624,7 @@ pub fn run(socket: &Path, client_pid: i32) -> Result<()> {
     use std::io::{BufRead, Write};
 
     CLIENT_PID.store(client_pid, std::sync::atomic::Ordering::Relaxed);
+    // SAFETY: forward_signal only does async-signal-safe work.
     unsafe {
         // Keep running (and cleaning up) if the terminal goes away.
         libc::signal(libc::SIGHUP, libc::SIG_IGN);
@@ -778,6 +783,7 @@ mod tests {
         let sender = std::thread::spawn(move || send_handoff(&path, &dev));
         let (stream, _) = listener.accept().await.unwrap();
         let (uid, fd) = receive_handoff(stream).await.unwrap();
+        // SAFETY: geteuid has no preconditions and cannot fail.
         assert_eq!(uid, unsafe { libc::geteuid() });
         sender.join().unwrap().unwrap();
         let mut f = std::fs::File::from(fd);

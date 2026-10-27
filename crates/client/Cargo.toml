@@ -3,7 +3,16 @@ name = "sshuttle2"
 description = "A VPN over a plain SSH login, written in Rust and inspired by sshuttle"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage = "https://allwinpower.github.io/sshuttle2/"
+readme = "../../README.md"
+keywords = ["vpn", "ssh", "tunnel", "sshuttle", "socks5"]
+categories = ["command-line-utilities", "network-programming"]
+
+[lints]
+workspace = true
 
 [dependencies]
 sshuttle2-core.workspace = true
