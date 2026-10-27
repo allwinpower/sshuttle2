@@ -24,6 +24,8 @@ pub fn header_for(first_byte: u8) -> [u8; 4] {
 /// Creates a utun device. Returns the descriptor and the interface name.
 #[cfg(target_os = "macos")]
 pub fn create() -> Result<(OwnedFd, String)> {
+    // SAFETY: the structs are plain data, zeroed or filled in before use, and
+    // every pointer passed comes with the size of what it points to.
     unsafe {
         let fd = libc::socket(libc::PF_SYSTEM, libc::SOCK_DGRAM, libc::SYSPROTO_CONTROL);
         if fd < 0 {
@@ -74,6 +76,8 @@ pub fn create() -> Result<(OwnedFd, String)> {
 /// Creates a Linux tun device (no packet-information prefix).
 #[cfg(target_os = "linux")]
 pub fn create() -> Result<(OwnedFd, String)> {
+    // SAFETY: IfReq has the layout TUNSETIFF expects, and the descriptor is
+    // owned as soon as open returns it.
     unsafe {
         let fd = libc::open(c"/dev/net/tun".as_ptr(), libc::O_RDWR | libc::O_CLOEXEC);
         if fd < 0 {

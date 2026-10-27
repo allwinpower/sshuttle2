@@ -12,6 +12,7 @@ use tokio::io::{AsyncRead, AsyncWrite, Interest, ReadBuf};
 
 pub fn set_nonblocking(fd: &impl AsRawFd) -> io::Result<()> {
     let fd = fd.as_raw_fd();
+    // SAFETY: fcntl on a descriptor the caller holds open; no pointers.
     unsafe {
         let flags = libc::fcntl(fd, libc::F_GETFL);
         if flags < 0 {
@@ -28,6 +29,7 @@ pub fn set_nonblocking(fd: &impl AsRawFd) -> io::Result<()> {
 /// non-pipes). Fewer, larger reads and writes between sshd and us.
 pub fn grow_pipe(fd: &impl AsRawFd, size: i32) {
     #[cfg(target_os = "linux")]
+    // SAFETY: fcntl on a descriptor the caller holds open; no pointers.
     unsafe {
         libc::fcntl(fd.as_raw_fd(), libc::F_SETPIPE_SZ, size);
     }
@@ -48,6 +50,7 @@ pub fn set_linger_zero(fd: &impl AsRawFd) {
         l_onoff: 1,
         l_linger: 0,
     };
+    // SAFETY: the pointer and length describe `l`, which outlives the call.
     unsafe {
         libc::setsockopt(
             fd.as_raw_fd(),
@@ -62,6 +65,8 @@ pub fn set_linger_zero(fd: &impl AsRawFd) {
 /// Sets a socket's kernel send and receive buffers.
 pub fn set_socket_buffers(fd: &impl AsRawFd, size: i32) {
     for opt in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
+        // SAFETY: the pointer and length describe `size`, which outlives the
+        // call.
         unsafe {
             libc::setsockopt(
                 fd.as_raw_fd(),
@@ -97,6 +102,8 @@ impl AsyncRead for FdReader {
             let mut guard = ready!(self.fd.poll_read_ready(cx))?;
             let unfilled = buf.initialize_unfilled();
             let res = guard.try_io(|fd| {
+                // SAFETY: the kernel writes at most `unfilled.len()` bytes
+                // into `unfilled`, which is initialized and ours.
                 let n = unsafe {
                     libc::read(fd.as_raw_fd(), unfilled.as_mut_ptr().cast(), unfilled.len())
                 };
@@ -140,6 +147,7 @@ impl AsyncWrite for FdWriter {
         // Try the write first and wait for readiness only when it would
         // block. Some descriptors (macOS utun control sockets) may never
         // signal writable through kqueue, though writes to them succeed.
+        // SAFETY: the kernel reads at most `buf.len()` bytes from `buf`.
         let n = unsafe { libc::write(self.fd.as_raw_fd(), buf.as_ptr().cast(), buf.len()) };
         if n >= 0 {
             return Poll::Ready(Ok(n as usize));
@@ -151,6 +159,7 @@ impl AsyncWrite for FdWriter {
         loop {
             let mut guard = ready!(self.fd.poll_write_ready(cx))?;
             let res = guard.try_io(|fd| {
+                // SAFETY: the kernel reads at most `buf.len()` bytes from `buf`.
                 let n = unsafe { libc::write(fd.as_raw_fd(), buf.as_ptr().cast(), buf.len()) };
                 if n < 0 {
                     Err(io::Error::last_os_error())
