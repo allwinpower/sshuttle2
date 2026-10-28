@@ -37,9 +37,14 @@ pub async fn read_tagged_line<R: AsyncRead + Unpin>(
             skipped += line.len();
             ensure!(skipped < MAX_JUNK, "no startup line from the remote side");
             if !text.trim().is_empty() {
-                tracing::debug!("remote: {text}");
+                tracing::debug!("remote: {}", text.escape_debug());
             }
         }
+        // A line that never ends counts too.
+        ensure!(
+            skipped + buf.len() < MAX_JUNK,
+            "no startup line from the remote side"
+        );
         buf.reserve(4096);
         let n = rd.read_buf(buf).await?;
         if n == 0 {
@@ -91,5 +96,24 @@ pub async fn read_hello<R: AsyncRead + Unpin>(rd: &mut R, buf: &mut BytesMut) ->
         if rd.read_buf(buf).await? == 0 {
             bail!("connection closed before HELLO");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn endless_line_is_an_error() {
+        let mut rd = tokio::io::repeat(b'x');
+        let mut buf = BytesMut::new();
+        let r = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            read_tagged_line(&mut rd, &mut buf, "n0nce"),
+        )
+        .await
+        .expect("gave up in time");
+        assert!(r.is_err());
+        assert!(buf.len() <= 1 << 20);
     }
 }

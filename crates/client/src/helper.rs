@@ -638,9 +638,10 @@ pub fn run(socket: &Path, client_pid: i32) -> Result<()> {
             forward_signal as *const () as libc::sighandler_t,
         );
     }
-    let path = std::env::var("PATH").unwrap_or_default();
+    // Root runs system tools only (nft, resolvectl): a PATH kept from the
+    // user's environment could put another program of the same name first.
     // SAFETY: single-threaded at this point.
-    unsafe { std::env::set_var("PATH", format!("{path}:/sbin:/usr/sbin")) };
+    unsafe { std::env::set_var("PATH", "/usr/sbin:/usr/bin:/sbin:/bin") };
 
     let stream = std::os::unix::net::UnixStream::connect(socket)
         .with_context(|| format!("connecting to {}", socket.display()))?;

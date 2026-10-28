@@ -122,6 +122,7 @@ async fn recv_from(slot: &mut Option<(ChanTx, ChanRx)>) -> Option<Inbound> {
 
 async fn udp_associate(mut ctl: TcpStream, mux: Mux) -> Result<()> {
     let local_ip = ctl.local_addr()?.ip();
+    let peer_ip = ctl.peer_addr()?.ip();
     let udp = UdpSocket::bind((local_ip, 0)).await?;
     reply(&mut ctl, REP_OK, udp.local_addr()?).await?;
 
@@ -139,7 +140,8 @@ async fn udp_associate(mut ctl: TcpStream, mux: Mux) -> Result<()> {
             }
             r = udp.recv_from(&mut buf) => {
                 let (n, from) = r?;
-                if *client.get_or_insert(from) != from {
+                // The association belongs to the control connection's host.
+                if from.ip() != peer_ip || *client.get_or_insert(from) != from {
                     continue;
                 }
                 let Some((dst, payload)) = parse_udp_request(&buf[..n]) else { continue };
