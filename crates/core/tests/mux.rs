@@ -267,6 +267,60 @@ async fn overrun_resets_channel() {
 }
 
 #[tokio::test]
+async fn pings_from_a_peer_that_never_reads_queue_few_pongs() {
+    // A tiny pipe: our writer blocks after a few frames.
+    let (a, b) = tokio::io::duplex(64);
+    let (ar, aw) = tokio::io::split(a);
+    let (mut br, mut bw) = tokio::io::split(b);
+    let (_client, _) = Mux::start(ar, aw, BytesMut::new(), Role::Client, MuxConfig::default());
+    let mut out = BytesMut::new();
+    for i in 0..2000u64 {
+        Frame::ping(Kind::Ping, i).encode(&mut out);
+    }
+    // A PING without an 8-byte stamp gets no answer.
+    Frame::new(Kind::Ping, 0, vec![0u8; 60_000]).encode(&mut out);
+    bw.write_all(&out).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let mut got = BytesMut::new();
+    let mut pongs = 0;
+    while let Ok(Ok(n)) =
+        tokio::time::timeout(Duration::from_millis(200), br.read_buf(&mut got)).await
+    {
+        if n == 0 {
+            break;
+        }
+        while let Some(f) = sshuttle2_core::frame::parse(&mut got).unwrap() {
+            if f.kind == Kind::Pong {
+                assert_eq!(f.payload.len(), 8);
+                pongs += 1;
+            }
+        }
+    }
+    assert!(pongs > 0 && pongs < 100, "{pongs} PONGs for 2000 PINGs");
+}
+
+#[tokio::test]
+async fn repeated_channel_messages_are_dropped() {
+    let (a, b) = tokio::io::duplex(1024 * 1024);
+    let (ar, aw) = tokio::io::split(a);
+    let (_br, mut bw) = tokio::io::split(b);
+    let (client, _) = Mux::start(ar, aw, BytesMut::new(), Role::Client, MuxConfig::default());
+    let mut chan = client.open_tcp(&Addr::Domain("x".into(), 1)).await.unwrap();
+    let id = chan.id();
+    let mut out = BytesMut::new();
+    for _ in 0..1000 {
+        Frame::empty(Kind::ConnectOk, id).encode(&mut out);
+        Frame::new(Kind::DnsResp, id, vec![0u8; 1000]).encode(&mut out);
+        Frame::empty(Kind::Eof, id).encode(&mut out);
+    }
+    bw.write_all(&out).await.unwrap();
+    assert!(matches!(chan.rx.recv().await, Some(Inbound::ConnectOk)));
+    assert!(matches!(chan.rx.recv().await, Some(Inbound::Eof)));
+    let more = tokio::time::timeout(Duration::from_millis(100), chan.rx.recv()).await;
+    assert!(more.is_err(), "unexpected {more:?}");
+}
+
+#[tokio::test]
 async fn peer_eof_closes_mux() {
     let (a, b) = tokio::io::duplex(1024);
     let (ar, aw) = tokio::io::split(a);

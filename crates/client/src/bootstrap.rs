@@ -181,10 +181,10 @@ where
             wr.flush().await?;
             uploaded = true;
         } else if let Some(path) = line.strip_prefix("GO ") {
-            debug!("remote server at {path}");
+            debug!("remote server at {}", path.escape_debug());
             return Ok(uploaded);
         } else if let Some(msg) = line.strip_prefix("ERR ") {
-            bail!("remote: {msg}");
+            bail!("remote: {}", msg.escape_debug());
         } else {
             bail!("unexpected line from remote: {line:?}");
         }
