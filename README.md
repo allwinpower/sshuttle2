@@ -69,6 +69,8 @@ DNS queries from every app go to the server's resolver. On Linux this needs syst
 
 The pf and nft modes capture traffic with the firewall instead of a tun device. Other UDP traffic, and IPv6 unless you add `::/0`, goes around the tunnel. Use them where tun mode does not work. With SOCKS5, use `curl --socks5-hostname` or similar so names are resolved on the server.
 
+Choose `--socks5` over `ssh -D` when apps need UDP, or when large downloads share a slow link: sshuttle2 keeps other connections responsive there, while `ssh -D` queues them behind the downloads.
+
 ### Options
 
 | Option | Meaning |
