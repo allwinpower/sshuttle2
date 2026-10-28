@@ -44,6 +44,25 @@ CI builds with `RUSTFLAGS=-D warnings`, so any warning fails it.
 
 Each script's header says how to build the client it needs. CI runs all of them except `mac-server-check.sh`.
 
+## Fuzzing
+
+`fuzz/` holds [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets for input that a hostile server or a local app controls:
+
+| Target | Input |
+|---|---|
+| `frame` | frames in any chunk size, then every payload decoder |
+| `handshake` | the server's startup lines and HELLO frame |
+| `ipfrag` | IPv4 fragments into tun mode's reassembler |
+| `tcp_stack` | TCP segments into the vendored ipstack, configured as tun mode does |
+
+They need nightly Rust and cargo-fuzz (`cargo install cargo-fuzz`, or `brew install cargo-fuzz`):
+
+```bash
+cargo +nightly fuzz run frame -- -max_total_time=600
+```
+
+A crash leaves its input in `fuzz/artifacts/`. Add it as a unit test with the fix. CI runs each target for 60 seconds when the code it covers changes, and weekly.
+
 ## macOS
 
 CI cannot run macOS code. It checks that the code compiles for macOS, and nothing more. If your change touches macOS, say in the pull request what you tested on a Mac and how.

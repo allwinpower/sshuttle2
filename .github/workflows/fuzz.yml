@@ -1,0 +1,57 @@
+name: Fuzz
+
+# Each cargo-fuzz target in fuzz/ for 60 seconds, on changes to the code it
+# covers and weekly. A crash fails the job and keeps its input as an artifact.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - crates/core/**
+      - crates/client/src/ipfrag.rs
+      - third_party/ipstack/**
+      - fuzz/**
+      - .github/workflows/fuzz.yml
+  push:
+    branches: [main]
+    paths:
+      - crates/core/**
+      - crates/client/src/ipfrag.rs
+      - third_party/ipstack/**
+      - fuzz/**
+      - .github/workflows/fuzz.yml
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  fuzz:
+    name: fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [frame, handshake, ipfrag, tcp_stack]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # cargo-fuzz needs nightly for its sanitizer flags.
+      - run: rustup toolchain install nightly --profile minimal
+      - run: cargo +nightly install cargo-fuzz@0.13.2 --locked
+      - name: Fuzz for 60 seconds
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo +nightly fuzz run "$TARGET" -- -max_total_time=60 -timeout=10
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-${{ matrix.target }}
+          path: fuzz/artifacts/
+          if-no-files-found: ignore

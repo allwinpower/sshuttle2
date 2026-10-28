@@ -1,0 +1,50 @@
+[package]
+name = "sshuttle2-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "LGPL-2.1-or-later"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
+bytes = "1"
+etherparse = { version = "0.20", default-features = false, features = ["std"] }
+tokio = { version = "1.47", features = ["rt", "io-util", "time", "sync", "macros", "test-util"] }
+sshuttle2-core = { path = "../crates/core" }
+ipstack = { path = "../third_party/ipstack" }
+
+# Its own workspace: cargo-fuzz builds with nightly and sanitizer flags that
+# the main workspace never sees.
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "frame"
+path = "fuzz_targets/frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "handshake"
+path = "fuzz_targets/handshake.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ipfrag"
+path = "fuzz_targets/ipfrag.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tcp_stack"
+path = "fuzz_targets/tcp_stack.rs"
+test = false
+doc = false
+bench = false
