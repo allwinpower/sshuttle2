@@ -231,7 +231,15 @@ fn client_for(root: &Path, target: &str) -> Result<()> {
     run(cargo()
         .current_dir(root)
         .env("SSHUTTLE2_SERVER_DIR", &dir)
-        .args([build, "--locked", "--release", "-p", "sshuttle2", "--target", target]))?;
+        .args([
+            build,
+            "--locked",
+            "--release",
+            "-p",
+            "sshuttle2",
+            "--target",
+            target,
+        ]))?;
     let bin = client_bin(root, target);
     eprintln!(
         "  {} ({} KiB)",

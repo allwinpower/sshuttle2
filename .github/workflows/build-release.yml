@@ -81,7 +81,7 @@ jobs:
           # Release builds start clean; and saving the cache looks up zig's
           # version list online after the build, which can fail on its own.
           use-cache: false
-      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
           tool: cargo-zigbuild@0.24.0
       - run: cargo xtask servers
@@ -125,7 +125,7 @@ jobs:
           # Release builds start clean; and saving the cache looks up zig's
           # version list online after the build, which can fail on its own.
           use-cache: false
-      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
           tool: cargo-zigbuild@0.24.0
       - name: nfpm
