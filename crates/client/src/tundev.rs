@@ -146,7 +146,11 @@ pub fn recv_fd(sock: &impl AsRawFd) -> Result<OwnedFd> {
             && let Some(&fd) = fds.first()
         {
             // SAFETY: the kernel just installed this descriptor for us.
-            return Ok(unsafe { OwnedFd::from_raw_fd(fd) });
+            let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+            // Keep it out of anything we start later.
+            // SAFETY: the descriptor is open; F_SETFD only changes its flags.
+            unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
+            return Ok(fd);
         }
     }
     bail!("no descriptor in the helper's message")
@@ -162,6 +166,9 @@ mod tests {
         let (r, w) = std::os::unix::net::UnixStream::pair().unwrap();
         send_fd(&a, w.as_raw_fd()).unwrap();
         let got = recv_fd(&b).unwrap();
+        // SAFETY: `got` is open.
+        let flags = unsafe { libc::fcntl(got.as_raw_fd(), libc::F_GETFD) };
+        assert_ne!(flags & libc::FD_CLOEXEC, 0);
         // Writing through the received copy reaches the original pair.
         let mut f = std::fs::File::from(got);
         std::io::Write::write_all(&mut f, b"hi").unwrap();

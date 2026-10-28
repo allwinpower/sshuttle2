@@ -100,7 +100,7 @@ pub fn describe(pkt: &[u8]) -> Option<String> {
         return None;
     }
     let ihl = (pkt[0] & 0x0f) as usize * 4;
-    let t = &pkt[ihl..];
+    let t = pkt.get(ihl..).filter(|t| t.len() >= 20)?;
     let f = t[13];
     let names = [
         (0x02, "SYN"),
@@ -426,6 +426,16 @@ pub fn build_udp_for_test(from: SocketAddr, to: SocketAddr, payload: &[u8]) -> O
     build_udp(from, to, payload)
 }
 
+/// Whether a UDP reply may claim to come from `ip`. The server picks the
+/// source of every reply, and none comes from this host, a broadcast or a
+/// multicast group.
+fn plausible_source(ip: IpAddr) -> bool {
+    !(ip.is_loopback()
+        || ip.is_unspecified()
+        || ip.is_multicast()
+        || ip == IpAddr::V4(std::net::Ipv4Addr::BROADCAST))
+}
+
 /// Builds the IP+UDP packet that delivers `payload` from `from` to `to`.
 fn build_udp(from: SocketAddr, to: SocketAddr, payload: &[u8]) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(payload.len() + 48);
@@ -515,6 +525,10 @@ impl UdpNat {
                 match rx.recv().await {
                     Some(Inbound::Udp(Addr::Ip(from), data)) => {
                         rx.udp_consumed(data.len());
+                        if !plausible_source(from.ip()) {
+                            debug!("UDP reply for {src} claims to be from {from}; dropped");
+                            continue;
+                        }
                         if let Some(p) = build_udp(from, src, &data) {
                             me.deliver(p).await;
                         }
@@ -535,6 +549,31 @@ impl UdpNat {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reply_sources() {
+        for ok in ["203.0.113.5", "10.0.0.1", "2001:db8::1"] {
+            assert!(plausible_source(ok.parse().unwrap()), "{ok}");
+        }
+        for bad in [
+            "127.0.0.1",
+            "::1",
+            "0.0.0.0",
+            "255.255.255.255",
+            "224.0.0.251",
+            "ff02::fb",
+        ] {
+            assert!(!plausible_source(bad.parse().unwrap()), "{bad}");
+        }
+    }
+
+    #[test]
+    fn describe_short_packets() {
+        let mut pkt = vec![0u8; 40];
+        pkt[0] = 0x4f; // a 60-byte header in a 40-byte packet
+        pkt[9] = 6;
+        assert_eq!(describe(&pkt), None);
+    }
 
     #[test]
     fn udp_round_trip_v4() {
