@@ -166,6 +166,11 @@ async fn run_socks(cli: Cli, remote: String, socks: SocketAddr) -> Result<()> {
     let listener = TcpListener::bind(socks)
         .await
         .with_context(|| format!("listening on {socks}"))?;
+    if !socks.ip().is_loopback() {
+        warn!(
+            "the SOCKS5 proxy on {socks} has no authentication: anyone who can reach it can use the tunnel"
+        );
+    }
 
     let tunnel = transport::open(&tunnel_opts(&cli, &remote)).await?;
     info!("connected to {remote}; SOCKS5 proxy on {socks}");

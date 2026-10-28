@@ -4,6 +4,19 @@ All notable changes to sshuttle2. The format is based on [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Changed
+
+- The firewall helper, which runs as root, starts `nft` and `resolvectl` from the system directories only, not from the user's `PATH`.
+- `--socks5` on an address other than loopback warns that the proxy has no authentication.
+
+### Fixed
+
+- A server could make the client queue PONG, EOF and DNS replies without limit, or read a startup line that never ends.
+- Control characters in the server's startup messages reached the terminal unescaped.
+- In tun mode, UDP replies from a loopback, broadcast or multicast source reached local apps.
+- The SOCKS5 UDP relay took datagrams from any local address, not only from the client that asked for it.
+- Programs the client starts no longer inherit the tun device.
+
 ## [0.3.0] - 2026-10-27
 
 ### Added

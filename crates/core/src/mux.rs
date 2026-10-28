@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed, Release};
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicUsize};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -151,12 +151,27 @@ impl Credit {
     }
 }
 
+/// Most PONGs queued at once; see `Kind::Ping` in `dispatch`.
+const MAX_PONGS: usize = 16;
+
 struct ChanEntry {
     tx: mpsc::UnboundedSender<Inbound>,
     credit: Arc<Credit>,
     /// Bytes the peer may still send us before overrunning what we granted.
     recv_allow: Arc<AtomicI64>,
     kind: ChanKind,
+    /// Kinds of one-off message already delivered, one bit per kind.
+    seen: u32,
+}
+
+impl ChanEntry {
+    /// Whether this is the first message of `kind` on the channel.
+    fn first(&mut self, kind: Kind) -> bool {
+        let bit = 1 << kind as u32;
+        let first = self.seen & bit == 0;
+        self.seen |= bit;
+        first
+    }
 }
 
 #[derive(Default)]
@@ -176,6 +191,8 @@ struct Inner {
     start: Instant,
     rtt: Mutex<RttFilter>,
     total_window: AtomicU64,
+    /// PONGs queued and not yet written.
+    pongs: AtomicUsize,
     closed: watch::Sender<Option<String>>,
     stats: Stats,
 }
@@ -247,6 +264,7 @@ impl Inner {
                     credit: credit.clone(),
                     recv_allow: recv_allow.clone(),
                     kind,
+                    seen: 0,
                 },
             );
         }
@@ -286,7 +304,16 @@ impl Inner {
     fn dispatch(self: &Arc<Self>, f: Frame, opens: &mpsc::UnboundedSender<Open>) -> Result<()> {
         trace!(kind = ?f.kind, chan = f.chan, len = f.payload.len(), "<");
         match f.kind {
-            Kind::Ping => self.send_ctrl(Frame::new(Kind::Pong, 0, f.payload)),
+            // A peer that pings but never reads would otherwise queue our
+            // answers without end: a few unanswered PONGs are plenty.
+            Kind::Ping if f.payload.len() == 8 => {
+                if self.pongs.fetch_add(1, Relaxed) < MAX_PONGS {
+                    self.send_ctrl(Frame::new(Kind::Pong, 0, f.payload));
+                } else {
+                    self.pongs.fetch_sub(1, Relaxed);
+                }
+            }
+            Kind::Ping => {}
             Kind::Pong => {
                 let sent = frame::parse_u64(&f.payload)?;
                 let now = self.start.elapsed().as_micros() as u64;
@@ -341,6 +368,9 @@ impl Inner {
                 let Some(e) = channels.get(&f.chan) else {
                     return Ok(());
                 };
+                if e.kind != ChanKind::Tcp {
+                    return Ok(());
+                }
                 if e.recv_allow.fetch_sub(len, AcqRel) < len {
                     // The peer sent more than we granted. Its accounting is
                     // broken for this channel; reset it rather than buffer
@@ -383,10 +413,15 @@ impl Inner {
                 }
             }
             Kind::Eof | Kind::Rst | Kind::ConnectOk | Kind::ConnectErr | Kind::UdpClose => {
-                let channels = self.channels.lock().unwrap();
-                let Some(e) = channels.get(&f.chan) else {
+                let mut channels = self.channels.lock().unwrap();
+                let Some(e) = channels.get_mut(&f.chan) else {
                     return Ok(());
                 };
+                // Each means something once per channel; repeats would only
+                // queue up behind a slow consumer.
+                if !e.first(f.kind) {
+                    return Ok(());
+                }
                 let msg = match f.kind {
                     Kind::Eof => Inbound::Eof,
                     Kind::ConnectOk => Inbound::ConnectOk,
@@ -404,8 +439,11 @@ impl Inner {
                 let _ = e.tx.send(msg);
             }
             Kind::DnsResp => {
-                let channels = self.channels.lock().unwrap();
-                if let Some(e) = channels.get(&f.chan) {
+                let mut channels = self.channels.lock().unwrap();
+                if let Some(e) = channels.get_mut(&f.chan)
+                    && e.kind == ChanKind::Dns
+                    && e.first(f.kind)
+                {
                     let _ = e.tx.send(Inbound::Dns(f.payload));
                 }
             }
@@ -916,6 +954,7 @@ impl Mux {
             start: Instant::now(),
             rtt: Mutex::new(RttFilter::default()),
             total_window: AtomicU64::new(0),
+            pongs: AtomicUsize::new(0),
             closed,
             stats: Stats::default(),
         });
@@ -1056,6 +1095,9 @@ async fn writer<W>(
                 .stats
                 .bytes_up
                 .fetch_add(f.payload.len() as u64, Relaxed);
+        }
+        if f.kind == Kind::Pong {
+            inner.pongs.fetch_sub(1, Relaxed);
         }
         let exit = f.kind == Kind::Exit;
         f.encode(batch);
