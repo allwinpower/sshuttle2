@@ -4,6 +4,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # A new release waits a week before its update, so a compromised one
+    # has time to be caught and yanked. Security updates do not wait.
+    cooldown:
+      default-days: 7
     # Vendored with a patch, outside the workspace; updated by hand.
     exclude-paths:
       - "third_party/**"
@@ -20,6 +24,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       actions-minor-patch:
         update-types: [minor, patch]

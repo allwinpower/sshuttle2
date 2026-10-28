@@ -1,0 +1,47 @@
+name: ipstack upstream
+
+# third_party/ipstack is a patched copy, which Dependabot does not update.
+# This opens an issue when upstream has commits the copy is not based on.
+on:
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compare with upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2016 # a sed program, quoted as such
+          base=$(sed -n 's/.*upstream commit `\([0-9a-f]*\)`.*/\1/p' third_party/ipstack/PATCHES.md | head -1)
+          [ -n "$base" ] || { echo "PATCHES.md names no upstream commit" >&2; exit 1; }
+          compare=repos/narrowlink/ipstack/compare/$base...HEAD
+          ahead=$(gh api "$compare" --jq .ahead_by)
+          echo "upstream is $ahead commits past $base"
+          [ "$ahead" -gt 0 ] || exit 0
+          title="ipstack upstream has commits past $base"
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq length)
+          if [ "$open" -gt 0 ]; then
+            echo "an issue is already open"
+            exit 0
+          fi
+          # shellcheck disable=SC2016 # a jq program, quoted as such
+          commits=$(gh api "$compare" --jq '.commits[] | "- [`\(.sha[0:7])`](\(.html_url)) \(.commit.message | split("\n")[0])"')
+          printf '%s\n\n%s\n\n%s\n' \
+            "\`third_party/ipstack\` is based on upstream commit \`$base\`. Upstream has $ahead commits since:" \
+            "$commits" \
+            "Check them for fixes to take, then update the copy and the commit named in \`third_party/ipstack/PATCHES.md\`." >"$RUNNER_TEMP/body.md"
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$RUNNER_TEMP/body.md"
