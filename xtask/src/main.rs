@@ -165,6 +165,7 @@ fn servers(root: &Path) -> Result<()> {
             .current_dir(root)
             .args([
                 "zigbuild",
+                "--locked",
                 "--profile",
                 "release-server",
                 "-p",
@@ -195,6 +196,7 @@ fn client(root: &Path) -> Result<()> {
         // The native server too: `-r local` (tests) runs it from target/release.
         .args([
             "build",
+            "--locked",
             "--release",
             "-p",
             "sshuttle2",
@@ -229,7 +231,7 @@ fn client_for(root: &Path, target: &str) -> Result<()> {
     run(cargo()
         .current_dir(root)
         .env("SSHUTTLE2_SERVER_DIR", &dir)
-        .args([build, "--release", "-p", "sshuttle2", "--target", target]))?;
+        .args([build, "--locked", "--release", "-p", "sshuttle2", "--target", target]))?;
     let bin = client_bin(root, target);
     eprintln!(
         "  {} ({} KiB)",

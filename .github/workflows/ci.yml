@@ -32,6 +32,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # rustup reads rust-toolchain.toml on the first cargo call; this makes
       # the install its own step so its time does not hide inside "fmt".
       - run: rustup show active-toolchain || rustup toolchain install
@@ -43,20 +45,22 @@ jobs:
           python3 scripts/speedtest/report.py scripts/speedtest/testdata/results.jsonl \
             --layout scripts/speedtest/testdata/layout.json | diff scripts/speedtest/testdata/results.md -
       - run: cargo clippy --workspace --all-targets
-      - run: cargo test --workspace
+      - run: cargo test --workspace --locked
       # End to end: the servers (Linux and macOS), a client embedding them, then
       # real transfers through a local server and over ssh into a container.
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.17.0
       - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2
         with:
-          tool: cargo-zigbuild
+          tool: cargo-zigbuild@0.24.0
       - run: cargo xtask dist
       - run: scripts/e2e.sh local
       - run: scripts/e2e.sh docker
       # Tun mode, in containers: a static client (musl) that runs on Alpine.
       - run: |
           rustup target add x86_64-unknown-linux-musl
-          SSHUTTLE2_SERVER_DIR=$PWD/dist/server cargo zigbuild --release -p sshuttle2 --target x86_64-unknown-linux-musl
+          SSHUTTLE2_SERVER_DIR=$PWD/dist/server cargo zigbuild --locked --release -p sshuttle2 --target x86_64-unknown-linux-musl
       - run: scripts/e2e-tun.sh
       # nft mode, in containers. Its rules need nft_redir and nft_fib_inet;
       # load them up front in case the kernel does not load them on demand
@@ -75,6 +79,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo clippy --workspace --all-targets
@@ -87,6 +93,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: |
           msrv=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)
           rustup toolchain install "$msrv" --profile minimal
@@ -99,14 +107,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
         with:
-          command: check advisories licenses sources
+          command: check advisories bans licenses sources
+
+  zizmor:
+    # The workflows themselves: template injection, broad permissions,
+    # persisted credentials, unpinned or known-bad actions. Low-severity
+    # findings are only reported.
+    needs: release-files
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.release-files.outputs.code != 'false') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+        with:
+          version: 1.31.1
+          min-severity: medium
+          advanced-security: false
 
   release-files:
     # What this pull request touches. changed: the release build, so
     # release-build runs, as it needs macOS and arm64 runners. code:
-    # anything but docs, so linux, macos, msrv and deny run; false only when
+    # anything but docs, so linux, macos, msrv, deny and zizmor run; false only when
     # every file is on the short list below (testdata .md files are not:
     # linux diffs them).
     if: github.event_name == 'pull_request'
@@ -117,6 +144,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 2
       - id: diff
         run: |
@@ -146,7 +174,7 @@ jobs:
     # The one job everything else hangs off, and the check branch protection
     # requires: GitHub auto-merge waits for it. A skipped job reports
     # success, so the gate checks each result itself.
-    needs: [linux, macos, msrv, deny, release-files, release-build]
+    needs: [linux, macos, msrv, deny, zizmor, release-files, release-build]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -160,12 +188,13 @@ jobs:
             macos=${{ needs.macos.result }}
             msrv=${{ needs.msrv.result }}
             deny=${{ needs.deny.result }}
+            zizmor=${{ needs.zizmor.result }}
         run: |
           set -euo pipefail
           echo "release-files=$FILES"
           echo "release-build=$BUILD"
           echo "code=$CODE"
-          # linux, macos, msrv and deny may skip only a pull request that
+          # linux, macos, msrv, deny and zizmor may skip only a pull request that
           # release-files saw touch nothing but docs.
           for job in $CHECKS; do
             echo "$job"

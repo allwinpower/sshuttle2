@@ -1,5 +1,5 @@
 # cargo-deny's checks of the dependency tree, run by the deny job in
-# .github/workflows/ci.yml: cargo deny check advisories licenses sources
+# .github/workflows/ci.yml: cargo deny check advisories bans licenses sources
 
 [graph]
 # The platforms sshuttle2 builds for. Crates that only other targets pull in
@@ -25,6 +25,10 @@ allow = [
   "LGPL-2.1-or-later",
   "Unicode-3.0",
 ]
+
+[bans]
+# Two versions of one crate only warn: ipstack pins its own etherparse.
+multiple-versions = "warn"
 
 [sources]
 # crates.io only. ipstack comes from third_party/ through [patch.crates-io]:
