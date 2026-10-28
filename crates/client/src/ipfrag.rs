@@ -40,7 +40,9 @@ impl Reassembler {
         let more = flags_off & 0x2000 != 0;
         let offset = (flags_off & 0x1fff) as usize * 8;
         let data = &pkt[ihl..total_len];
-        if offset + data.len() > MAX_DATAGRAM {
+        let end = offset + data.len();
+        // Every fragment but the last carries a multiple of 8 bytes.
+        if end > MAX_DATAGRAM || (more && (data.is_empty() || !data.len().is_multiple_of(8))) {
             return None;
         }
         let key = (
@@ -61,17 +63,38 @@ impl Reassembler {
             total: None,
             started: now,
         });
+        // Fragments that overlap, or that reach past the end the last one
+        // set, are dropped with the whole datagram, as RFC 5722 asks for
+        // IPv6. Then the parts never hold more than one datagram's bytes.
+        let total = if more { p.total } else { Some(end) };
+        let dup = p
+            .parts
+            .iter()
+            .any(|(o, d)| *o == offset && d.len() == data.len());
+        let overlaps = !dup
+            && p.parts
+                .iter()
+                .any(|(o, d)| offset < o + d.len() && *o < end);
+        let disagrees = !more && p.total.is_some_and(|t| t != end);
+        let past_end =
+            total.is_some_and(|t| end > t || p.parts.iter().any(|(o, d)| o + d.len() > t));
+        if overlaps || disagrees || past_end {
+            self.pending.remove(&key);
+            return None;
+        }
         if offset == 0 {
             p.header = pkt[..ihl].to_vec();
         }
-        if !more {
-            p.total = Some(offset + data.len());
-        }
-        if !p.parts.iter().any(|(o, _)| *o == offset) {
+        p.total = total;
+        if !dup {
             p.parts.push((offset, data.to_vec()));
         }
         let total = p.total?;
         if p.header.is_empty() {
+            return None;
+        }
+        if p.header.len() + total > MAX_DATAGRAM {
+            self.pending.remove(&key);
             return None;
         }
         p.parts.sort_by_key(|(o, _)| *o);
@@ -80,7 +103,7 @@ impl Reassembler {
             if *o > have {
                 return None; // a hole
             }
-            have = have.max(o + d.len());
+            have = o + d.len();
         }
         if have < total {
             return None;
@@ -89,8 +112,7 @@ impl Reassembler {
         let mut out = p.header.clone();
         out.resize(p.header.len() + total, 0);
         for (o, d) in &p.parts {
-            let end = (o + d.len()).min(total);
-            out[p.header.len() + o..p.header.len() + end].copy_from_slice(&d[..end - o]);
+            out[p.header.len() + o..p.header.len() + o + d.len()].copy_from_slice(d);
         }
         let len = out.len() as u16;
         out[2..4].copy_from_slice(&len.to_be_bytes());
@@ -184,6 +206,57 @@ mod tests {
             .map(|h| (h, ()))
             .unwrap();
         assert_eq!(h.header_checksum(), h.to_header().calc_header_checksum());
+    }
+
+    /// A raw IPv4 fragment of `len` bytes at `offset`.
+    fn frag(offset: usize, len: usize, more: bool) -> Vec<u8> {
+        let mut p = vec![0u8; 20 + len];
+        p[0] = 0x45;
+        p[2..4].copy_from_slice(&((20 + len) as u16).to_be_bytes());
+        p[4..6].copy_from_slice(&7u16.to_be_bytes());
+        let flags_off = (offset / 8) as u16 | if more { 0x2000 } else { 0 };
+        p[6..8].copy_from_slice(&flags_off.to_be_bytes());
+        p[9] = 17;
+        p[12..16].copy_from_slice(&[10, 0, 0, 1]);
+        p[16..20].copy_from_slice(&[10, 0, 0, 2]);
+        p
+    }
+
+    #[test]
+    fn overlapping_fragments_drop_the_datagram() {
+        let mut r = Reassembler::default();
+        assert!(r.add(&frag(0, 104, true)).is_none());
+        assert!(r.add(&frag(80, 8, true)).is_none());
+        assert!(r.add(&frag(8, 8, false)).is_none());
+        // What is left of the datagram never completes.
+        assert!(r.add(&frag(104, 8, false)).is_none());
+    }
+
+    #[test]
+    fn fragment_past_the_end_drops_the_datagram() {
+        let mut r = Reassembler::default();
+        assert!(r.add(&frag(0, 8, true)).is_none());
+        assert!(r.add(&frag(24, 8, true)).is_none());
+        // The last fragment ends the datagram at 16, before the one at 24.
+        assert!(r.add(&frag(8, 8, false)).is_none());
+        assert!(r.add(&frag(16, 8, true)).is_none());
+
+        // A second last fragment that moves the end drops it too.
+        let mut r = Reassembler::default();
+        assert!(r.add(&frag(0, 8, true)).is_none());
+        assert!(r.add(&frag(16, 8, false)).is_none());
+        assert!(r.add(&frag(8, 8, false)).is_none());
+        assert!(r.add(&frag(8, 8, true)).is_none());
+    }
+
+    #[test]
+    fn odd_sized_middle_fragment_is_ignored() {
+        let mut r = Reassembler::default();
+        assert!(r.add(&frag(0, 12, true)).is_none());
+        assert!(r.add(&frag(0, 8, true)).is_none());
+        let whole = r.add(&frag(8, 5, false)).expect("reassembled");
+        assert_eq!(whole.len(), 20 + 13);
+        assert_eq!(u16::from_be_bytes([whole[2], whole[3]]), 33);
     }
 
     #[test]

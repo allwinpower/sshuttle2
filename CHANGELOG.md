@@ -17,6 +17,10 @@ All notable changes to sshuttle2. The format is based on [Keep a Changelog](http
 - The SOCKS5 UDP relay took datagrams from any local address, not only from the client that asked for it.
 - Programs the client starts no longer inherit the tun device.
 
+### Security
+
+- In tun mode, a local process with root or `CAP_NET_RAW` could crash the client with crafted IPv4 fragments. The routes then came down and traffic went around the tunnel ([GHSA-2c7x-2cp2-g77m](https://github.com/allwinpower/sshuttle2/security/advisories/GHSA-2c7x-2cp2-g77m)).
+
 ## [0.3.0] - 2026-10-27
 
 ### Added
